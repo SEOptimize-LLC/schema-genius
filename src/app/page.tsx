@@ -8,7 +8,7 @@ export default function Home() {
   const [title, setTitle] = useState('');
   const [pageType, setPageType] = useState('WebPage');
   const [content, setContent] = useState('');
-  const [schema, setSchema] = useState(null);
+  const [schema, setSchema] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
   const generateSchema = async () => {
