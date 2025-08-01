@@ -3,12 +3,21 @@
 
 import { useState } from 'react';
 
+// Add this interface here
+interface SchemaType {
+  "@context": string;
+  "@type": string;
+  url: string;
+  name: string;
+  description: string;
+}
+
 export default function Home() {
   const [url, setUrl] = useState('');
   const [title, setTitle] = useState('');
   const [pageType, setPageType] = useState('WebPage');
   const [content, setContent] = useState('');
-  const [schema, setSchema] = useState<any>(null);
+  const [schema, setSchema] = useState<SchemaType | null>(null);  // Change this line
   const [loading, setLoading] = useState(false);
 
   const generateSchema = async () => {
