@@ -310,14 +310,13 @@ export default function Home() {
               confidence: Math.min(confidence, 0.95)
             };
             
-            // Add Wikipedia/Wikidata links for known high-confidence entities
+            // Add Wikipedia links for known high-confidence entities
             if (confidence > 0.85) {
               const sameAs = [];
               
-              // Map known terms to their Wikipedia/Wikidata entries
+              // Map known terms to their Wikipedia entries
               if (normalized === 'bong' || normalized === 'bongs') {
                 sameAs.push('https://en.wikipedia.org/wiki/Bong');
-                sameAs.push('https://www.wikidata.org/wiki/Q847027');
               } else if (normalized === 'water pipe' || normalized === 'water pipes') {
                 sameAs.push('https://en.wikipedia.org/wiki/Water_pipe');
               } else if (normalized === 'bubbler' || normalized === 'bubblers') {
@@ -328,16 +327,12 @@ export default function Home() {
                 sameAs.push('https://en.wikipedia.org/wiki/Bong#Percolator');
               } else if (normalized === 'borosilicate glass' || normalized === 'borosilicate') {
                 sameAs.push('https://en.wikipedia.org/wiki/Borosilicate_glass');
-                sameAs.push('https://www.wikidata.org/wiki/Q413680');
               } else if (normalized === 'silicone') {
                 sameAs.push('https://en.wikipedia.org/wiki/Silicone');
-                sameAs.push('https://www.wikidata.org/wiki/Q146439');
               } else if (normalized === 'cannabis') {
                 sameAs.push('https://en.wikipedia.org/wiki/Cannabis');
-                sameAs.push('https://www.wikidata.org/wiki/Q79817');
               } else if (normalized === 'glass') {
                 sameAs.push('https://en.wikipedia.org/wiki/Glass');
-                sameAs.push('https://www.wikidata.org/wiki/Q11469');
               }
               
               if (sameAs.length > 0) {
@@ -636,36 +631,9 @@ export default function Home() {
             "name": entity.name
           };
           
-          // Add Wikipedia/Wikidata links for high-confidence entities
-          if (entity.confidence > 0.9) {
-            const sameAs = [];
-            
-            // For specific product types, use appropriate Wikipedia pages
-            const nameLower = entity.name.toLowerCase();
-            if (nameLower === 'bong' || nameLower === 'bongs') {
-              sameAs.push('https://en.wikipedia.org/wiki/Bong');
-              sameAs.push('https://www.wikidata.org/wiki/Q847027'); // Wikidata ID for bong
-            } else if (nameLower === 'water pipe' || nameLower === 'water pipes') {
-              sameAs.push('https://en.wikipedia.org/wiki/Water_pipe');
-            } else if (nameLower === 'bubbler' || nameLower === 'bubblers') {
-              sameAs.push('https://en.wikipedia.org/wiki/Bong#Bubblers');
-            } else if (nameLower === 'percolator' || nameLower === 'percolators') {
-              sameAs.push('https://en.wikipedia.org/wiki/Bong#Percolator');
-            } else if (nameLower === 'borosilicate glass' || nameLower === 'borosilicate') {
-              sameAs.push('https://en.wikipedia.org/wiki/Borosilicate_glass');
-              sameAs.push('https://www.wikidata.org/wiki/Q413680');
-            } else if (nameLower === 'silicone') {
-              sameAs.push('https://en.wikipedia.org/wiki/Silicone');
-              sameAs.push('https://www.wikidata.org/wiki/Q146439');
-            } else if (entity.name.split(' ').length <= 2) {
-              // For other short terms, create potential Wikipedia URL
-              const wikiName = entity.name.replace(/ /g, '_');
-              sameAs.push(`https://en.wikipedia.org/wiki/${wikiName}`);
-            }
-            
-            if (sameAs.length > 0) {
-              thing.sameAs = sameAs;
-            }
+          // Add Wikipedia links for high-confidence entities
+          if (entity.confidence > 0.9 && entity.sameAs && entity.sameAs.length > 0) {
+            thing.sameAs = entity.sameAs;
           }
           
           return thing;
@@ -691,29 +659,8 @@ export default function Home() {
           };
           
           // Add Wikipedia links for known concepts in mentions
-          if (entity.confidence > 0.75) {
-            const nameLower = entity.name.toLowerCase();
-            const sameAs = [];
-            
-            // Check for known terms
-            if (nameLower === 'glass' || nameLower === 'glass pipe') {
-              sameAs.push('https://en.wikipedia.org/wiki/Glass');
-            } else if (nameLower === 'filtration') {
-              sameAs.push('https://en.wikipedia.org/wiki/Filtration');
-            } else if (nameLower === 'smoke') {
-              sameAs.push('https://en.wikipedia.org/wiki/Smoke');
-            } else if (nameLower === 'cannabis') {
-              sameAs.push('https://en.wikipedia.org/wiki/Cannabis');
-              sameAs.push('https://www.wikidata.org/wiki/Q79817');
-            } else if (entity.name.split(' ').length === 1 && entity.type === 'material') {
-              // Single-word materials can have Wikipedia links
-              const wikiName = entity.name.replace(/ /g, '_');
-              sameAs.push(`https://en.wikipedia.org/wiki/${wikiName}`);
-            }
-            
-            if (sameAs.length > 0) {
-              thing.sameAs = sameAs;
-            }
+          if (entity.confidence > 0.75 && entity.sameAs && entity.sameAs.length > 0) {
+            thing.sameAs = entity.sameAs;
           }
           
           return thing;
@@ -936,6 +883,13 @@ export default function Home() {
     a.click();
   };
 
+  // Format schema with script tags
+  const formatSchemaWithScriptTags = (schema: SchemaType) => {
+    return `<script type="application/ld+json">
+${JSON.stringify(schema, null, 2)}
+</script>`;
+  };
+
   return (
     <main className="container mx-auto p-8 max-w-7xl">
       <h1 className="text-4xl font-bold mb-8">Advanced Schema Markup Generator</h1>
@@ -1122,14 +1076,14 @@ export default function Home() {
                 <h2 className="text-xl font-semibold">Generated Schema</h2>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => navigator.clipboard.writeText(JSON.stringify(currentSchema, null, 2))}
+                    onClick={() => navigator.clipboard.writeText(formatSchemaWithScriptTags(currentSchema))}
                     className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 text-sm transition-colors"
                   >
                     Copy to Clipboard
                   </button>
                   <button
                     onClick={() => {
-                      const blob = new Blob([JSON.stringify(currentSchema, null, 2)], { type: 'application/json' });
+                      const blob = new Blob([formatSchemaWithScriptTags(currentSchema)], { type: 'application/json' });
                       const url = URL.createObjectURL(blob);
                       const a = document.createElement('a');
                       a.href = url;
@@ -1143,7 +1097,7 @@ export default function Home() {
                 </div>
               </div>
               <pre className="bg-gray-100 p-4 rounded overflow-auto h-[500px] text-sm">
-                {JSON.stringify(currentSchema, null, 2)}
+                {formatSchemaWithScriptTags(currentSchema)}
               </pre>
             </>
           )}
