@@ -381,7 +381,7 @@ export class KnowledgeGraphBuilder {
       
       for (const parentNode of parentNodes) {
         const childNodes = Array.from(this.graph.nodes.values())
-          .filter(node => childTypes.includes(node.type));
+          .filter(node => (childTypes as string[]).includes(node.type));
         
         for (const childNode of childNodes) {
           // Add hierarchical relationship
