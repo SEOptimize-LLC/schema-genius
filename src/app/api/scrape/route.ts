@@ -76,6 +76,7 @@ function extractDataFromHTML(html: string, url: string) {
   const ogDescription = html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i)?.[1];
   const ogType = html.match(/<meta[^>]+property=["']og:type["'][^>]+content=["']([^"']+)["']/i)?.[1];
   const ogSiteName = html.match(/<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']+)["']/i)?.[1];
+  const ogImage = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)?.[1];
   
   // Extract structured data if present
   const jsonLdMatches = html.match(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
@@ -98,6 +99,28 @@ function extractDataFromHTML(html: string, url: string) {
   
   // Extract organization name
   let organizationName = ogSiteName || '';
+  
+  // Enhanced organization extraction from existing schema
+  if (!organizationName && existingSchemas.length > 0) {
+    for (const schema of existingSchemas) {
+      if (schema.publisher?.name) {
+        organizationName = schema.publisher.name;
+        break;
+      }
+      if (schema['@graph']) {
+        for (const item of schema['@graph']) {
+          if (item['@type'] === 'Organization' && item.name) {
+            organizationName = item.name;
+            break;
+          }
+          if (item.publisher?.name) {
+            organizationName = item.publisher.name;
+            break;
+          }
+        }
+      }
+    }
+  }
   
   if (!organizationName) {
     // Try to extract from domain
@@ -125,17 +148,6 @@ function extractDataFromHTML(html: string, url: string) {
   
   // Extract author/writer
   let authorName = '';
-  
-  // TODO: Enhanced E-E-A-T Author Information
-  // Future enhancement: After finding author name, make additional requests to:
-  // 1. Check /about-us, /about, /team pages for author info
-  // 2. Check /authors/[authorname] or /author/[authorname] pages
-  // 3. Extract author's role, expertise, bio, social profiles
-  // 4. Build enhanced Person schema with:
-  //    - jobTitle, worksFor, alumniOf, knowsAbout
-  //    - sameAs (social profiles)
-  //    - description (bio)
-  // This would greatly improve E-E-A-T signals
   
   // First check existing schemas
   if (existingSchemas.length > 0) {
@@ -166,6 +178,7 @@ function extractDataFromHTML(html: string, url: string) {
   // Look for common author patterns in the HTML
   if (!authorName) {
     const authorPatterns = [
+      // Common patterns
       /(?:Written by|Author:|By:?)\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/,
       /(?:Written by|Author:|By:?)\s*<[^>]*>([^<]+)</i,
       /<span[^>]+class=["'][^"']*author[^"']*["'][^>]*>([^<]+)</i,
@@ -173,7 +186,11 @@ function extractDataFromHTML(html: string, url: string) {
       /<a[^>]+class=["'][^"']*author[^"']*["'][^>]*>([^<]+)</i,
       /class=["']author-name["'][^>]*>([^<]+)</i,
       /Written by\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/,
-      /By\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*(?:<|$|\n)/
+      /By\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*(?:<|$|\n)/,
+      // New patterns based on client sites
+      /Posted by\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i,
+      /<[^>]+class=["'][^"']*post-author[^"']*["'][^>]*>([^<]+)</i,
+      /<[^>]+itemprop=["']author["'][^>]*>([^<]+)</i
     ];
     
     for (const pattern of authorPatterns) {
@@ -187,6 +204,7 @@ function extractDataFromHTML(html: string, url: string) {
             !potentialAuthor.toLowerCase().includes('posted') &&
             !potentialAuthor.toLowerCase().includes('category') &&
             !potentialAuthor.toLowerCase().includes('tag') &&
+            !potentialAuthor.toLowerCase().includes('admin') && // Filter out generic admin
             /^[A-Z][a-z]+(\s+[A-Z][a-z]+)*$/.test(potentialAuthor)) {
           authorName = potentialAuthor;
           break;
@@ -195,44 +213,131 @@ function extractDataFromHTML(html: string, url: string) {
     }
   }
   
-  // Extract main content
+  // Extract main content - ENHANCED VERSION WITH UNIVERSAL PATTERNS
   let textContent = '';
   
   // Remove scripts, styles, and other non-content elements
   const cleanHtml = html
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
-    .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
-    .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '');
+    .replace(/<noscript[^>]*>[\s\S]*?<\/noscript>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<svg[^>]*>[\s\S]*?<\/svg>/gi, '');
   
-  // Try to find main content area
+  // Try to find main content area with UNIVERSAL patterns
   const contentPatterns = [
+    // Standard semantic HTML
     /<article[^>]*>([\s\S]*?)<\/article>/i,
     /<main[^>]*>([\s\S]*?)<\/main>/i,
-    /<div[^>]+class=["'][^"']*content[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
-    /<div[^>]+class=["'][^"']*post[^"']*["'][^>]*>([\s\S]*?)<\/div>/i
+    
+    // Shopify/E-commerce patterns (Mary Go Round)
+    /<div[^>]+class=["'][^"']*\brte\b[^"']*["'][^>]*>([\s\S]*?)(?=<div[^>]+class=["'][^"']*(?:footer|sidebar|comments|related|share))/i,
+    /<div[^>]+class=["'][^"']*article__content[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
+    
+    // WordPress patterns (Education Walkthrough)
+    /<div[^>]+class=["'][^"']*\bentry-content\b[^"']*["'][^>]*>([\s\S]*?)(?=<\/div|<footer|<aside)/i,
+    /<div[^>]+class=["'][^"']*\bpost-content\b[^"']*["'][^>]*>([\s\S]*?)(?=<\/div|<footer|<aside)/i,
+    /<div[^>]+class=["'][^"']*\bwp-block-post-content\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
+    
+    // Odoo/Custom CMS patterns (Cudio)
+    /<section[^>]+class=["'][^"']*\bo_wblog_post_content\b[^"']*["'][^>]*>([\s\S]*?)<\/section>/i,
+    /<div[^>]+class=["'][^"']*\bblog-content\b[^"']*["'][^>]*>([\s\S]*?)(?=<div[^>]+class=["'][^"']*(?:footer|sidebar|comments))/i,
+    
+    // Generic content patterns - more specific
+    /<div[^>]+class=["'][^"']*\b(?:entry-content|post-content|article-content|content-area|main-content|page-content|body-content)\b[^"']*["'][^>]*>([\s\S]*?)(?=<(?:div|footer|aside|section)[^>]*(?:class=["'][^"']*(?:footer|sidebar|comments|related)|id=["'][^"']*(?:footer|sidebar|comments)))/i,
+    
+    // ID-based patterns
+    /<div[^>]+id=["'][^"']*(?:content|main-content|article-content|post-content)[^"']*["'][^>]*>([\s\S]*?)(?=<div[^>]+(?:class|id)=["'][^"']*(?:sidebar|footer|comments))/i,
+    
+    // Blog post patterns
+    /<div[^>]+class=["'][^"']*\b(?:blog-post|blog-content|post-body|article-body)\b[^"']*["'][^>]*>([\s\S]*?)(?=<\/div|<footer|<aside)/i,
+    
+    // Look for content with multiple paragraphs
+    /(<p[^>]*>[\s\S]*?<\/p>\s*){3,}/gi,
+    
+    // Fallback: Look for div with most text content
+    /<div[^>]*>(?:\s*<(?:p|h[1-6]|ul|ol|blockquote)[^>]*>[\s\S]*?<\/(?:p|h[1-6]|ul|ol|blockquote)>\s*){2,}<\/div>/gi
   ];
   
+  let maxContentLength = 0;
+  let bestContent = '';
+  
+  // Try each pattern and keep the longest result
   for (const pattern of contentPatterns) {
-    const match = cleanHtml.match(pattern);
-    if (match && match[1]) {
-      textContent = match[1];
-      break;
+    const matches = cleanHtml.match(new RegExp(pattern, 'gi'));
+    if (matches) {
+      for (const match of matches) {
+        // Extract just the text to measure content length
+        const textOnly = match.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        
+        // Skip if it's navigation or contains too many links relative to text
+        const linkCount = (match.match(/<a[^>]*>/gi) || []).length;
+        const wordCount = textOnly.split(/\s+/).length;
+        if (linkCount > wordCount / 10) continue; // Skip if more than 1 link per 10 words
+        
+        if (textOnly.length > maxContentLength) {
+          maxContentLength = textOnly.length;
+          bestContent = match;
+        }
+      }
     }
   }
   
-  // Fallback to all text
-  if (!textContent) {
-    textContent = cleanHtml;
+  // If we found good content, use it
+  if (bestContent && maxContentLength > 500) {
+    textContent = bestContent;
+  } else {
+    // Enhanced fallback: look for the body content more carefully
+    const bodyMatch = cleanHtml.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    if (bodyMatch) {
+      // Remove known non-content areas
+      let bodyContent = bodyMatch[1]
+        .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
+        .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
+        .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '')
+        .replace(/<aside[^>]*>[\s\S]*?<\/aside>/gi, '')
+        .replace(/<div[^>]+class=["'][^"']*\b(?:sidebar|widget|advertisement|ads|promo|social-share|newsletter|popup|modal|overlay)\b[^"']*["'][^>]*>[\s\S]*?<\/div>/gi, '');
+      
+      // Look for the main content container
+      const containerPatterns = [
+        /<div[^>]+class=["'][^"']*\b(?:container|wrapper|main|content)\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
+        /<div[^>]+id=["'][^"']*\b(?:container|wrapper|main|content)\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/i
+      ];
+      
+      for (const pattern of containerPatterns) {
+        const match = bodyContent.match(pattern);
+        if (match && match[1]) {
+          const containerText = match[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+          if (containerText.length > 500) {
+            textContent = match[1];
+            break;
+          }
+        }
+      }
+      
+      // If still no content, use cleaned body
+      if (!textContent) {
+        textContent = bodyContent;
+      }
+    } else {
+      textContent = cleanHtml;
+    }
   }
   
-  // Clean up the text content
-  textContent = textContent
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .substring(0, 10000); // Limit to 10k chars
+  // Extract text content more carefully, preserving structure
+  const fullTextContent = textContent
+    .replace(/<(p|h[1-6]|li)[^>]*>/gi, '\n\n') // Add double newlines for paragraphs and headers
+    .replace(/<br[^>]*>/gi, '\n') // Single newline for breaks
+    .replace(/<[^>]+>/g, ' ') // Replace other tags with spaces
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n\s*\n\s*\n/g, '\n\n') // Reduce multiple newlines
+    .replace(/\s+/g, ' ') // Normalize spaces
+    .trim();
   
   // Extract published date
   let publishedDate = '';
@@ -249,14 +354,19 @@ function extractDataFromHTML(html: string, url: string) {
     modifiedDate = dateModifiedMeta[1];
   }
   
-  // Look for date patterns in HTML
+  // Enhanced date patterns
   if (!publishedDate) {
     const datePatterns = [
       /<span[^>]+class=["'][^"']*date["'][^>]*>([^<]+)</i,
       /<time[^>]+datetime=["']([^"']+)["']/i,
       /(?:Published|Posted|Date)[\s:]*([A-Z][a-z]+\s+\d{1,2},?\s+\d{4})/i,
       /(?:Published|Posted|Date)[\s:]*(\d{1,2}[-\/]\d{1,2}[-\/]\d{4})/,
-      /<meta[^>]+name=["']publish_date["'][^>]+content=["']([^"']+)["']/i
+      /<meta[^>]+name=["']publish_date["'][^>]+content=["']([^"']+)["']/i,
+      // New patterns for client sites
+      /Posted on\s+([A-Z][a-z]+\s+\d{1,2},?\s+\d{4})/i,
+      /<[^>]+class=["'][^"']*post-date[^"']*["'][^>]*>([^<]+)</i,
+      /<[^>]+class=["'][^"']*entry-date[^"']*["'][^>]*>([^<]+)</i,
+      /<[^>]+itemprop=["']datePublished["'][^>]*content=["']([^"']+)["']/i
     ];
     
     for (const pattern of datePatterns) {
@@ -273,55 +383,122 @@ function extractDataFromHTML(html: string, url: string) {
     }
   }
   
-  // Extract logo URL
-  let logoUrl = '';
+  // Extract featured image
+  let featuredImage = ogImage || '';
   
-  // Try Open Graph image first
-  const ogImage = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i);
-  if (ogImage) {
-    logoUrl = ogImage[1];
-  }
-  
-  // Try to find logo in common patterns
-  if (!logoUrl) {
-    const logoPatterns = [
-      /<img[^>]+class=["']logo["'][^>]+src=["']([^"']+)["']/i,
-      /<img[^>]+class=["'][^"']*logo[^"']*["'][^>]+src=["']([^"']+)["']/i,
-      /<img[^>]+id=["'][^"']*logo[^"']*["'][^>]+src=["']([^"']+)["']/i,
-      /<img[^>]+alt=["'][^"']*logo[^"']*["'][^>]+src=["']([^"']+)["']/i,
-      /class=["']logo["'][^>]*>\s*<img[^>]+src=["']([^"']+)["']/i,
-      /<a[^>]+class=["']logo["'][^>]*>\s*<img[^>]+src=["']([^"']+)["']/i,
-      /src=["']([^"']+logo[^"']+)["']/i
+  if (!featuredImage) {
+    // Look for common featured image patterns
+    const imagePatterns = [
+      /<img[^>]+class=["'][^"']*featured[^"']*["'][^>]+src=["']([^"']+)["']/i,
+      /<img[^>]+class=["'][^"']*wp-post-image[^"']*["'][^>]+src=["']([^"']+)["']/i,
+      /<meta[^>]+property=["']twitter:image["'][^>]+content=["']([^"']+)["']/i,
+      // Shopify patterns
+      /<img[^>]+class=["'][^"']*article__image[^"']*["'][^>]+src=["']([^"']+)["']/i,
+      // First image in content area
+      new RegExp(`${bestContent ? bestContent.substring(0, 200) : '<article'}[^>]*>[\s\S]*?<img[^>]+src=["']([^"']+)["'][^>]*>`, 'i')
     ];
     
-    for (const pattern of logoPatterns) {
+    for (const pattern of imagePatterns) {
       const match = html.match(pattern);
       if (match && match[1]) {
-        logoUrl = match[1];
-        // Handle protocol-relative URLs
-        if (logoUrl.startsWith('//')) {
-          logoUrl = `https:${logoUrl}`;
-        } else if (logoUrl.startsWith('/')) {
-          // Make absolute URL if relative
-          const urlObj = new URL(url);
-          logoUrl = `${urlObj.origin}${logoUrl}`;
+        featuredImage = match[1];
+        // Handle Shopify responsive images
+        if (featuredImage.includes('{width}')) {
+          featuredImage = featuredImage.replace(/{width}/g, '1200');
         }
         break;
       }
     }
   }
   
+  // Make image URLs absolute
+  if (featuredImage) {
+    if (featuredImage.startsWith('//')) {
+      featuredImage = `https:${featuredImage}`;
+    } else if (featuredImage.startsWith('/')) {
+      const urlObj = new URL(url);
+      featuredImage = `${urlObj.origin}${featuredImage}`;
+    }
+  }
+  
+  // Extract logo URL
+  let logoUrl = '';
+  
+  // Try to find logo in common patterns
+  const logoPatterns = [
+    /<img[^>]+class=["'][^"']*logo[^"']*["'][^>]+src=["']([^"']+)["']/i,
+    /<img[^>]+id=["'][^"']*logo[^"']*["'][^>]+src=["']([^"']+)["']/i,
+    /<img[^>]+alt=["'][^"']*logo[^"']*["'][^>]+src=["']([^"']+)["']/i,
+    /<a[^>]+class=["'][^"']*logo[^"']*["'][^>]*>\s*<img[^>]+src=["']([^"']+)["']/i,
+    /class=["'](?:site-logo|brand|navbar-brand|header__logo)["'][^>]*>\s*<img[^>]+src=["']([^"']+)["']/i,
+    // Shopify patterns
+    /<img[^>]+class=["'][^"']*header__logo-image[^"']*["'][^>]+src=["']([^"']+)["']/i
+  ];
+  
+  for (const pattern of logoPatterns) {
+    const match = html.match(pattern);
+    if (match && match[1]) {
+      logoUrl = match[1];
+      // Handle protocol-relative URLs
+      if (logoUrl.startsWith('//')) {
+        logoUrl = `https:${logoUrl}`;
+      } else if (logoUrl.startsWith('/')) {
+        // Make absolute URL if relative
+        const urlObj = new URL(url);
+        logoUrl = `${urlObj.origin}${logoUrl}`;
+      }
+      break;
+    }
+  }
+  
+  // Extract language
+  const langMatch = html.match(/<html[^>]+lang=["']([^"']+)["']/i);
+  const language = langMatch ? langMatch[1] : 'en-US';
+  
+  // Extract additional contributors/editors
+  let editorName = '';
+  let reviewerName = '';
+  const contributors: string[] = [];
+  
+  // Look for editor patterns
+  const editorPatterns = [
+    /(?:Edited by|Editor:|Reviewed by:?)\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/,
+    /<span[^>]+class=["'][^"']*editor[^"']*["'][^>]*>([^<]+)</i
+  ];
+  
+  for (const pattern of editorPatterns) {
+    const match = html.match(pattern);
+    if (match && match[1]) {
+      const name = match[1].trim();
+      if (name && name.length > 2 && name.length < 50) {
+        if (pattern.toString().includes('Reviewed')) {
+          reviewerName = name;
+        } else {
+          editorName = name;
+        }
+      }
+    }
+  }
+  
+  console.log(`Extracted content length: ${fullTextContent.length} characters`);
+  console.log(`Content extraction method: ${bestContent ? 'Pattern match' : 'Fallback'}`);
+  
   return {
     url,
     title: title || ogTitle || '',
     description: description || ogDescription || '',
-    content: textContent,
+    content: fullTextContent,
     pageType: ogType || 'WebPage',
     organizationName,
     authorName,
+    editorName,
+    reviewerName,
+    contributors,
     publishedDate,
     modifiedDate,
     logoUrl,
+    featuredImage,
+    language,
     existingSchemas,
     metadata: {
       ogTitle,
@@ -329,7 +506,9 @@ function extractDataFromHTML(html: string, url: string) {
       ogType,
       ogSiteName,
       hasExistingSchema: existingSchemas.length > 0,
-      schemaCount: existingSchemas.length
+      schemaCount: existingSchemas.length,
+      contentLength: fullTextContent.length,
+      extractionMethod: bestContent ? 'Pattern match' : 'Fallback'
     }
   };
 }
