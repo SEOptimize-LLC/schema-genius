@@ -237,7 +237,33 @@ export default function Home() {
     // Build schema based on detected page type
     let generatedSchema: SchemaType;
     
-    if (pageType === 'article' || content.toLowerCase().includes('article') || content.toLowerCase().includes('blog')) {
+        if (pageType === 'article' || content.toLowerCase().includes('article') || content.toLowerCase().includes('blog')) {
+      // Calculate word count
+      const wordCount = content.split(/\s+/).filter(word => word.length > 0).length;
+      
+      // Generate abstract (first 2-3 sentences or ~150 words)
+      const sentences = content.match(/[^.!?]+[.!?]+/g) || [];
+      const abstract = sentences.slice(0, 3).join(' ').substring(0, 300) + '...';
+      
+      // Determine audience based on content
+      const audience = determineAudience(content, entities);
+      
+      // Determine what the article teaches
+      const teaches = determineTeaches(content, entities);
+      
+      // Parse URL for use throughout
+      const urlObj = new URL(url);
+      
+      // Extract blog path from URL
+      const pathParts = urlObj.pathname.split('/').filter(part => part);
+      let blogPath = '';
+      for (const part of pathParts) {
+        if (part.match(/^(blog|blogs|news|articles?)$/i)) {
+          blogPath = pathParts.slice(0, pathParts.indexOf(part) + 1).join('/');
+          break;
+        }
+      }
+      
       generatedSchema = {
         "@context": "https://schema.org",
         "@type": "BlogPosting", // Changed from "Article" to "BlogPosting"
