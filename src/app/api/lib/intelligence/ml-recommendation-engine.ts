@@ -36,8 +36,8 @@ interface ContentFeatures {
 }
 
 export class MLRecommendationEngine {
-  private schemaTypePatterns: Map<string, RegExp[]>;
-  private schemaTypeFeatures: Map<string, (features: ContentFeatures) => number>;
+  private schemaTypePatterns!: Map<string, RegExp[]>;
+  private schemaTypeFeatures!: Map<string, (features: ContentFeatures) => number>;
   
   constructor() {
     this.initializePatterns();
