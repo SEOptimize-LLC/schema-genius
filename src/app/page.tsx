@@ -46,6 +46,12 @@ export default function Home() {
   const [processedUrls, setProcessedUrls] = useState<ProcessedURL[]>([]);
   const [currentSchema, setCurrentSchema] = useState<SchemaType | null>(null);
   const [scrapedContent, setScrapedContent] = useState<any>(null);
+  const [manualMode, setManualMode] = useState(false);
+  const [manualContent, setManualContent] = useState({
+    title: '',
+    description: '',
+    content: ''
+  });
 
   // Simple entity extraction
   const extractEntities = (text: string): Entity[] => {
@@ -197,8 +203,18 @@ export default function Home() {
     
     setLoading(true);
     try {
-      // Scrape the URL
+      // Try to scrape the URL
       const scrapedData = await scrapeUrl(singleUrl);
+      
+      // Check if we need to use manual mode
+      if (scrapedData.error || scrapedData.useClientSide) {
+        setManualMode(true);
+        // Pre-fill URL in manual content
+        setManualContent(prev => ({ ...prev, url: singleUrl }));
+        setLoading(false);
+        return;
+      }
+      
       setScrapedContent(scrapedData);
       
       // Auto-fill organization and author if found
@@ -223,11 +239,45 @@ export default function Home() {
       }]);
     } catch (error) {
       console.error('Error processing URL:', error);
+      setManualMode(true);
+      setManualContent(prev => ({ ...prev, url: singleUrl }));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const processManualContent = async () => {
+    if (!manualContent.title || !manualContent.content) return;
+    
+    setLoading(true);
+    try {
+      const manualData = {
+        url: singleUrl,
+        title: manualContent.title,
+        description: manualContent.description,
+        content: manualContent.content,
+        pageType: 'WebPage',
+        organizationName: organizationName,
+        authorName: authorName,
+        existingSchemas: []
+      };
+      
+      // Generate schema
+      const { schema, entities } = await generateSchemaForUrl(manualData);
+      setCurrentSchema(schema);
+      
+      // Add to processed URLs
       setProcessedUrls([{
         url: singleUrl,
-        status: 'error',
-        error: 'Failed to process URL'
+        status: 'completed',
+        title: manualData.title,
+        schema,
+        entities
       }]);
+      
+      setManualMode(false);
+    } catch (error) {
+      console.error('Error processing manual content:', error);
     } finally {
       setLoading(false);
     }
@@ -324,19 +374,61 @@ export default function Home() {
         <div className="space-y-4">
           {/* URL Input */}
           {mode === 'single' ? (
-            <div>
-              <label className="block text-sm font-medium mb-2">Enter URL to Scrape</label>
-              <input
-                type="url"
-                className="w-full p-3 border rounded focus:ring-2 focus:ring-blue-500"
-                value={singleUrl}
-                onChange={(e) => setSingleUrl(e.target.value)}
-                placeholder="https://example.com/page"
-              />
-              <p className="text-sm text-gray-500 mt-1">
-                The content will be automatically scraped from this URL
-              </p>
-            </div>
+            <>
+              <div>
+                <label className="block text-sm font-medium mb-2">Enter URL to Scrape</label>
+                <input
+                  type="url"
+                  className="w-full p-3 border rounded focus:ring-2 focus:ring-blue-500"
+                  value={singleUrl}
+                  onChange={(e) => setSingleUrl(e.target.value)}
+                  placeholder="https://example.com/page"
+                />
+                <p className="text-sm text-gray-500 mt-1">
+                  The content will be automatically scraped from this URL
+                </p>
+              </div>
+
+              {/* Manual Content Input (shown if scraping fails) */}
+              {manualMode && (
+                <div className="p-4 bg-yellow-50 border border-yellow-200 rounded">
+                  <p className="text-sm text-yellow-800 mb-3">
+                    ⚠️ Automatic scraping is blocked by this website. Please enter the content manually:
+                  </p>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Page Title</label>
+                      <input
+                        type="text"
+                        className="w-full p-2 border rounded"
+                        value={manualContent.title}
+                        onChange={(e) => setManualContent({...manualContent, title: e.target.value})}
+                        placeholder="Enter page title"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Meta Description (Optional)</label>
+                      <input
+                        type="text"
+                        className="w-full p-2 border rounded"
+                        value={manualContent.description}
+                        onChange={(e) => setManualContent({...manualContent, description: e.target.value})}
+                        placeholder="Enter meta description"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Page Content</label>
+                      <textarea
+                        className="w-full p-2 border rounded h-32"
+                        value={manualContent.content}
+                        onChange={(e) => setManualContent({...manualContent, content: e.target.value})}
+                        placeholder="Paste the main content of the page here..."
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
             <div>
               <label className="block text-sm font-medium mb-2">Enter URLs (one per line)</label>
@@ -384,12 +476,24 @@ export default function Home() {
 
           {/* Action Buttons */}
           <button
-            onClick={mode === 'single' ? processSingleUrl : processBulkUrls}
-            disabled={loading || (mode === 'single' ? !singleUrl : !bulkUrls)}
+            onClick={manualMode ? processManualContent : (mode === 'single' ? processSingleUrl : processBulkUrls)}
+            disabled={loading || (mode === 'single' ? (!singleUrl || (manualMode && (!manualContent.title || !manualContent.content))) : !bulkUrls)}
             className="w-full bg-blue-500 text-white p-3 rounded hover:bg-blue-600 disabled:bg-gray-400 transition-colors"
           >
             {loading ? 'Processing...' : `Generate Schema${mode === 'bulk' ? 's' : ''}`}
           </button>
+
+          {manualMode && (
+            <button
+              onClick={() => {
+                setManualMode(false);
+                setManualContent({ title: '', description: '', content: '' });
+              }}
+              className="w-full bg-gray-500 text-white p-2 rounded hover:bg-gray-600 transition-colors"
+            >
+              Cancel Manual Mode
+            </button>
+          )}
 
           {/* Scraped Content Info */}
           {scrapedContent && mode === 'single' && (

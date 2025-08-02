@@ -9,18 +9,44 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'URL is required' }, { status: 400 });
     }
 
-    // Fetch the HTML content
+    // Fetch the HTML content with better headers to avoid blocking
     const response = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Cache-Control': 'max-age=0'
       }
     });
 
     if (!response.ok) {
-      return NextResponse.json({ error: 'Failed to fetch URL' }, { status: 400 });
+      console.error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
+      
+      // If direct fetching fails, return a message to use client-side fetching
+      return NextResponse.json({ 
+        error: 'Direct fetching blocked', 
+        useClientSide: true,
+        url,
+        status: response.status 
+      }, { status: 200 });
     }
 
     const html = await response.text();
+    
+    // Check if we got a blocking page instead of real content
+    if (html.includes('cf-browser-verification') || html.includes('challenge-platform') || html.length < 1000) {
+      return NextResponse.json({ 
+        error: 'Site requires browser verification', 
+        useClientSide: true,
+        url 
+      }, { status: 200 });
+    }
     
     // Extract content from HTML
     const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
