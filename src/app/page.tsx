@@ -53,47 +53,71 @@ export default function Home() {
     content: ''
   });
 
-  // Simple entity extraction
+  // Improved entity extraction
   const extractEntities = (text: string): Entity[] => {
     const entities: Entity[] = [];
+    const foundEntities = new Set<string>();
     
-    // Common mortgage/real estate entities
+    // Domain-specific entities for dental/health content
     const domainEntities = {
-      mortgage: ['mortgage', 'loan', 'refinance', 'home loan', 'mortgage rate'],
-      financial: ['credit score', 'interest rate', 'down payment', 'closing costs', 'apr', 'annual percentage rate'],
-      realEstate: ['real estate', 'property', 'home', 'house', 'condo', 'townhouse'],
-      process: ['pre-approval', 'underwriting', 'appraisal', 'closing', 'escrow'],
-      types: ['fha', 'va loan', 'conventional loan', 'jumbo loan', 'fixed-rate', 'adjustable-rate', 'arm']
+      dental: [
+        'toothpaste', 'fluoride', 'hydroxyapatite', 'cavity', 'cavities', 'enamel', 
+        'tooth decay', 'oral health', 'dental care', 'teeth whitening', 'plaque',
+        'tartar', 'gingivitis', 'gum disease', 'oral hygiene', 'brushing', 'flossing'
+      ],
+      ingredients: [
+        'calcium', 'phosphate', 'xylitol', 'nano-hydroxyapatite', 'minerals',
+        'natural ingredients', 'fluoride-free', 'non-toxic', 'chemical-free'
+      ],
+      health: [
+        'remineralization', 'tooth sensitivity', 'oral microbiome', 'pH balance',
+        'cavity prevention', 'enamel protection', 'gum health'
+      ],
+      audience: [
+        'kids', 'children', 'toddlers', 'pediatric', 'family', 'parents'
+      ],
+      product: [
+        'SNOW', 'oral care', 'toothbrush', 'mouthwash', 'dental products'
+      ]
     };
 
-    // Check for entities
+    // Check for domain entities (case-insensitive)
     Object.entries(domainEntities).forEach(([category, terms]) => {
       terms.forEach(term => {
-        if (text.toLowerCase().includes(term)) {
+        const regex = new RegExp(`\\b${term}\\b`, 'gi');
+        if (regex.test(text) && !foundEntities.has(term.toLowerCase())) {
+          foundEntities.add(term.toLowerCase());
           entities.push({
-            name: term.charAt(0).toUpperCase() + term.slice(1),
+            name: term.split(' ').map(word => 
+              word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+            ).join(' '),
             type: category,
-            confidence: 0.8
+            confidence: 0.9
           });
         }
       });
     });
 
-    // Extract potential company/organization names (simple heuristic)
-    const capitalizedWords = text.match(/[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*/g);
-    if (capitalizedWords) {
-      capitalizedWords.forEach(word => {
-        if (word.length > 3 && !entities.find(e => e.name === word)) {
+    // Extract brand names (look for ® ™ © symbols)
+    const brandMatches = text.match(/([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*)(?:[®™©])/g);
+    if (brandMatches) {
+      brandMatches.forEach(match => {
+        const brand = match.replace(/[®™©]/g, '').trim();
+        if (!foundEntities.has(brand.toLowerCase()) && brand.length > 2) {
+          foundEntities.add(brand.toLowerCase());
           entities.push({
-            name: word,
-            type: 'organization',
-            confidence: 0.6
+            name: brand,
+            type: 'brand',
+            confidence: 0.95
           });
         }
       });
     }
 
-    return entities;
+    // Sort by confidence and limit to most relevant
+    return entities
+      .sort((a, b) => b.confidence - a.confidence)
+      .slice(0, 20); // Limit to top 20 entities
   };
 
   const scrapeUrl = async (url: string) => {
