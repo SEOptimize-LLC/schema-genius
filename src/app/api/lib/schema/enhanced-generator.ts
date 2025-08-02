@@ -315,7 +315,6 @@ export class EnhancedSchemaGenerator {
 
   private isRealHowToContent(title: string, content: string): boolean {
     const titleLower = title.toLowerCase();
-    const contentLower = content.toLowerCase();
     
     // Must have "how to" in title
     if (!titleLower.includes('how to') && !titleLower.includes('step-by-step')) {

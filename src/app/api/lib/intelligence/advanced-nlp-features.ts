@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 // app/lib/intelligence/advanced-nlp-features.ts
 
 interface SentimentAnalysis {
@@ -50,9 +51,9 @@ interface SemanticSimilarityResult {
 }
 
 export class AdvancedNLPFeatures {
-  private sentimentLexicon: Map<string, number>;
-  private entityPatterns: Map<string, RegExp[]>;
-  private relationPatterns: Map<string, RegExp[]>;
+  private sentimentLexicon!: Map<string, number>;
+  private entityPatterns!: Map<string, RegExp[]>;
+  private relationPatterns!: Map<string, RegExp[]>;
   
   constructor() {
     this.initializeSentimentLexicon();
