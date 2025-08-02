@@ -34,8 +34,8 @@ interface EntityRelationship {
 
 export class KnowledgeGraphBuilder {
   private graph: KnowledgeGraph;
-  private relationshipPatterns: Map<string, RegExp[]>;
-  private domainOntologies: Map<string, any>;
+  private relationshipPatterns!: Map<string, RegExp[]>;
+  private domainOntologies!: Map<string, any>;
   
   constructor() {
     this.graph = {
