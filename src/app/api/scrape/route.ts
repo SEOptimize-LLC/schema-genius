@@ -126,6 +126,17 @@ function extractDataFromHTML(html: string, url: string) {
   // Extract author/writer
   let authorName = '';
   
+  // TODO: Enhanced E-E-A-T Author Information
+  // Future enhancement: After finding author name, make additional requests to:
+  // 1. Check /about-us, /about, /team pages for author info
+  // 2. Check /authors/[authorname] or /author/[authorname] pages
+  // 3. Extract author's role, expertise, bio, social profiles
+  // 4. Build enhanced Person schema with:
+  //    - jobTitle, worksFor, alumniOf, knowsAbout
+  //    - sameAs (social profiles)
+  //    - description (bio)
+  // This would greatly improve E-E-A-T signals
+  
   // First check existing schemas
   if (existingSchemas.length > 0) {
     for (const schema of existingSchemas) {
@@ -274,9 +285,12 @@ function extractDataFromHTML(html: string, url: string) {
   // Try to find logo in common patterns
   if (!logoUrl) {
     const logoPatterns = [
+      /<img[^>]+class=["']logo["'][^>]+src=["']([^"']+)["']/i,
       /<img[^>]+class=["'][^"']*logo[^"']*["'][^>]+src=["']([^"']+)["']/i,
       /<img[^>]+id=["'][^"']*logo[^"']*["'][^>]+src=["']([^"']+)["']/i,
       /<img[^>]+alt=["'][^"']*logo[^"']*["'][^>]+src=["']([^"']+)["']/i,
+      /class=["']logo["'][^>]*>\s*<img[^>]+src=["']([^"']+)["']/i,
+      /<a[^>]+class=["']logo["'][^>]*>\s*<img[^>]+src=["']([^"']+)["']/i,
       /src=["']([^"']+logo[^"']+)["']/i
     ];
     
@@ -284,8 +298,11 @@ function extractDataFromHTML(html: string, url: string) {
       const match = html.match(pattern);
       if (match && match[1]) {
         logoUrl = match[1];
-        // Make absolute URL if relative
-        if (logoUrl.startsWith('/')) {
+        // Handle protocol-relative URLs
+        if (logoUrl.startsWith('//')) {
+          logoUrl = `https:${logoUrl}`;
+        } else if (logoUrl.startsWith('/')) {
+          // Make absolute URL if relative
           const urlObj = new URL(url);
           logoUrl = `${urlObj.origin}${logoUrl}`;
         }
