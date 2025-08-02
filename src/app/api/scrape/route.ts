@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 // app/api/scrape/route.ts
 import { NextResponse } from 'next/server';
 
@@ -55,7 +56,7 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error('Scraping error:', error);
     return NextResponse.json(
-      { error: 'Failed to scrape URL', details: error.message }, 
+      { error: 'Failed to scrape URL', details: error instanceof Error ? error.message : 'Unknown error' }, 
       { status: 500 }
     );
   }
