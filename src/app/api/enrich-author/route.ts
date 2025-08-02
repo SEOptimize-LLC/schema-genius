@@ -155,7 +155,14 @@ function generateAuthorSlugs(authorName: string): string[] {
   return slugs;
 }
 
-function extractAuthorFromAboutPage(html: string, authorName: string): any {
+function extractAuthorFromAboutPage(html: string, authorName: string): {
+  found: boolean;
+  jobTitle: string;
+  description: string;
+  image: string;
+  sameAs: string[];
+  knowsAbout: string[];
+} {
   const result = {
     found: false,
     jobTitle: '',
@@ -219,7 +226,16 @@ function extractAuthorFromAboutPage(html: string, authorName: string): any {
   return result;
 }
 
-function extractAuthorFromProfilePage(html: string, authorName: string): any {
+function extractAuthorFromProfilePage(html: string, authorName: string): {
+  found: boolean;
+  jobTitle: string;
+  description: string;
+  image: string;
+  sameAs: string[];
+  knowsAbout: string[];
+  worksFor: string;
+  alumniOf: string;
+} {
   const result = {
     found: false,
     jobTitle: '',
