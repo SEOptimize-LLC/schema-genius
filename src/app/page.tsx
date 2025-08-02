@@ -7,7 +7,7 @@ import { useState } from 'react';
 
 interface SchemaType {
   "@context": string;
-  "@type": string | string[];
+  "@type"?: string | string[];
   "@graph"?: any[];
   url?: string;
   name?: string;
