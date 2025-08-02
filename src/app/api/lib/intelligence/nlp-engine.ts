@@ -26,8 +26,8 @@ interface ContentAnalysis {
 }
 
 export class NLPEngine {
-  private industryPatterns: Map<string, RegExp[]>;
-  private conceptPatterns: Map<string, RegExp[]>;
+  private industryPatterns!: Map<string, RegExp[]>;
+  private conceptPatterns!: Map<string, RegExp[]>;
   
   constructor() {
     this.initializePatterns();
