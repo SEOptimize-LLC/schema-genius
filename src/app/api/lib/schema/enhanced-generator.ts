@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // app/lib/schema/enhanced-generator.ts
 import { nlpEngine } from '../intelligence/nlp-engine';
 
@@ -96,7 +97,7 @@ export class EnhancedSchemaGenerator {
 
     // Add mentions - secondary entities
     const secondaryEntities = analysis.entities
-      .filter(e => !analysis.mainConcepts.includes(e.name))
+      .filter((e: any) => !analysis.mainConcepts.includes(e.name))
       .slice(0, 5);
     
     if (secondaryEntities.length > 0) {
@@ -148,7 +149,7 @@ export class EnhancedSchemaGenerator {
     const aboutEntities: any[] = [];
     
     for (const concept of mainConcepts) {
-      const entity = entities.find(e => e.name === concept);
+      const entity = entities.find((e: any) => e.name === concept);
       
       if (entity) {
         const aboutEntity: any = {
@@ -203,7 +204,7 @@ export class EnhancedSchemaGenerator {
   }
 
   private createMentions(entities: any[]): any[] {
-    return entities.map(entity => {
+    return entities.map((entity: any) => {
       const mention: any = {
         "@type": this.getSchemaType(entity),
         "name": entity.name

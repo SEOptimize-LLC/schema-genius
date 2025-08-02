@@ -404,8 +404,8 @@ export default function Home() {
     
     try {
       // Try to use enhanced intelligence layer
-      const { enhancedSchemaGenerator } = await import('@/lib/schema/enhanced-generator');
-      const { nlpEngine } = await import('@/lib/intelligence/nlp-engine');
+      const { enhancedSchemaGenerator } = await import('@/app/api/lib/schema/enhanced-generator');
+      const { nlpEngine } = await import('@/app/api/lib/intelligence/nlp-engine');
       
       // Generate schema using enhanced generator
       const schema = await enhancedSchemaGenerator.generateSchema({

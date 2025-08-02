@@ -1,5 +1,7 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 // app/lib/intelligence/nlp-engine.ts
-import { removeStopwords, eng } from 'stopword';
+// import { removeStopwords, eng } from 'stopword'; // Commented out as not being used
 
 interface ExtractedEntity {
   name: string;
