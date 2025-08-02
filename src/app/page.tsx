@@ -239,7 +239,7 @@ export default function Home() {
     
         if (pageType === 'article' || content.toLowerCase().includes('article') || content.toLowerCase().includes('blog')) {
       // Calculate word count
-      const wordCount = content.split(/\s+/).filter(word => word.length > 0).length;
+      const wordCount = content.split(/\s+/).filter((word: string) => word.length > 0).length;
       
       // Generate abstract (first 2-3 sentences or ~150 words)
       const sentences = content.match(/[^.!?]+[.!?]+/g) || [];
