@@ -145,17 +145,21 @@ export class NLPEngine {
 
   private detectContentType(content: string, title: string, url?: string): string {
     const text = `${title} ${content}`.toLowerCase();
+    const titleLower = title.toLowerCase();
     
-    if (text.includes('how to') || text.includes('guide') || text.includes('tutorial')) {
+    // Check for actual how-to content (not just the word "how")
+    if ((titleLower.includes('how to') || titleLower.includes('guide to')) && 
+        (text.includes('step') || text.includes('first') || text.includes('then'))) {
       return 'HowTo';
-    } else if (text.includes('review') || text.includes('comparison')) {
+    } else if (text.includes('review') || text.includes('comparison') || text.includes('vs') || text.includes('versus')) {
       return 'Review';
-    } else if (url?.includes('/blog') || url?.includes('/news')) {
+    } else if (url?.includes('/blog') || url?.includes('/news') || url?.includes('/article')) {
       return 'BlogPosting';
-    } else if (text.includes('research') || text.includes('study')) {
+    } else if (text.includes('research') || text.includes('study') || text.includes('findings')) {
       return 'ScholarlyArticle';
     }
     
+    // Default to Article for most content
     return 'Article';
   }
 
@@ -396,6 +400,18 @@ export class NLPEngine {
 
   private extractLearningOutcomes(content: string, entities: ExtractedEntity[]): any[] {
     const outcomes: any[] = [];
+    const foundOutcomes = new Set<string>();
+    
+    // Only extract learning outcomes for actual educational/how-to content
+    const contentLower = content.toLowerCase();
+    const isEducational = contentLower.includes('how to') || 
+                         contentLower.includes('learn') || 
+                         contentLower.includes('guide') ||
+                         contentLower.includes('tutorial');
+    
+    if (!isEducational) {
+      return [];
+    }
     
     // Look for specific learning patterns
     const learningPatterns = [
@@ -405,8 +421,6 @@ export class NLPEngine {
       /improve(?:ing)? (?:your )?([^.!?]+)/gi,
       /master(?:ing)? ([^.!?]+)/gi
     ];
-    
-    const foundOutcomes = new Set<string>();
     
     for (const pattern of learningPatterns) {
       const matches = Array.from(content.matchAll(pattern));
@@ -427,9 +441,11 @@ export class NLPEngine {
       }
     }
     
-    // Add entity-based learning outcomes
+    // Add entity-based learning outcomes ONLY if not already included
     for (const entity of entities.filter(e => e.confidence > 0.85)) {
-      if (entity.type === 'fitness' || entity.type === 'concept') {
+      if ((entity.type === 'fitness' || entity.type === 'concept') && 
+          !foundOutcomes.has(entity.name.toLowerCase())) {
+        foundOutcomes.add(entity.name.toLowerCase());
         outcomes.push({
           "@type": "DefinedTerm",
           "name": entity.name,
