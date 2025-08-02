@@ -385,8 +385,15 @@ export default function Home() {
   };
 
   // Import the enhanced generator at the top of the component
+  const generateSchemaForUrl = async (urlData: any) => {
+  // Import the enhanced generator inside the async function
   const { enhancedSchemaGenerator } = await import('@/lib/schema/enhanced-generator');
   const { nlpEngine } = await import('@/lib/intelligence/nlp-engine');
+  
+  const {
+    url, title, description, content, pageType, existingSchemas,
+    organizationName: extractedOrg, authorName: extractedAuthor,
+    editorName, reviewerName, contributors,
 
   const generateSchemaForUrl = async (urlData: any) => {
     const { 
