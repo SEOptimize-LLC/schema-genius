@@ -141,7 +141,7 @@ export default function Home() {
   };
 
   const generateSchemaForUrl = async (urlData: any) => {
-    const { url, title, description, content, pageType, existingSchemas, organizationName: extractedOrg, authorName: extractedAuthor, publishedDate, modifiedDate, logoUrl } = urlData;
+    const { url, title, description, content, pageType, existingSchemas, organizationName: extractedOrg, authorName: extractedAuthor, publishedDate, modifiedDate, logoUrl, enrichedAuthor } = urlData;
     
     // Use extracted values if user hasn't provided their own
     const finalOrgName = organizationName || extractedOrg;
@@ -163,10 +163,23 @@ export default function Home() {
         "articleBody": content,
         "datePublished": urlData.publishedDate || new Date().toISOString(),
         "dateModified": urlData.modifiedDate || urlData.publishedDate || new Date().toISOString(),
-        "author": finalAuthorName ? {
+        "author": finalAuthorName ? (enrichedAuthor ? {
+          "@type": "Person",
+          "name": finalAuthorName,
+          "jobTitle": enrichedAuthor.jobTitle || undefined,
+          "description": enrichedAuthor.description || undefined,
+          "image": enrichedAuthor.image || undefined,
+          "sameAs": enrichedAuthor.sameAs?.length > 0 ? enrichedAuthor.sameAs : undefined,
+          "knowsAbout": enrichedAuthor.knowsAbout?.length > 0 ? enrichedAuthor.knowsAbout : undefined,
+          "worksFor": (enrichedAuthor.worksFor || finalOrgName) ? {
+            "@type": "Organization",
+            "name": enrichedAuthor.worksFor || finalOrgName
+          } : undefined,
+          "alumniOf": enrichedAuthor.alumniOf || undefined
+        } : {
           "@type": "Person",
           "name": finalAuthorName
-        } : undefined,
+        }) : undefined,
         "publisher": finalOrgName ? {
           "@type": "Organization",
           "name": finalOrgName,
@@ -247,6 +260,28 @@ export default function Home() {
       }
       if (scrapedData.authorName && !authorName) {
         setAuthorName(scrapedData.authorName);
+        
+        // Attempt to enrich author data for E-E-A-T
+        try {
+          const enrichResponse = await fetch('/api/enrich-author', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              authorName: scrapedData.authorName,
+              siteUrl: new URL(singleUrl).origin
+            })
+          });
+          
+          if (enrichResponse.ok) {
+            const enrichData = await enrichResponse.json();
+            if (enrichData.enriched) {
+              // Store enriched author data for use in schema generation
+              scrapedData.enrichedAuthor = enrichData.authorData;
+            }
+          }
+        } catch (e) {
+          console.log('Author enrichment failed, using basic author data');
+        }
       }
       
       // Generate schema

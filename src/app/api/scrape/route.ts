@@ -1,335 +1,343 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-// app/api/scrape/route.ts
+// app/api/enrich-author/route.ts
 import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
   try {
-    const { url } = await request.json();
+    const { authorName, siteUrl } = await request.json();
     
-    if (!url) {
-      return NextResponse.json({ error: 'URL is required' }, { status: 400 });
+    if (!authorName || !siteUrl) {
+      return NextResponse.json({ error: 'Author name and site URL are required' }, { status: 400 });
     }
 
-    // Use ScrapingBee API
     const SCRAPINGBEE_API_KEY = process.env.SCRAPINGBEE_API_KEY;
-    
-    console.log('ScrapingBee API Key exists:', !!SCRAPINGBEE_API_KEY);
-    console.log('API Key length:', SCRAPINGBEE_API_KEY?.length);
     
     if (!SCRAPINGBEE_API_KEY) {
       return NextResponse.json({ 
-        error: 'ScrapingBee API key not configured',
-        message: 'Please add SCRAPINGBEE_API_KEY to your environment variables',
-        debug: {
-          keyExists: !!process.env.SCRAPINGBEE_API_KEY,
-          envKeys: Object.keys(process.env).filter(k => k.includes('SCRAPING'))
-        }
-      }, { status: 500 });
-    }
-    
-    // ScrapingBee API endpoint
-    const scrapingBeeUrl = new URL('https://app.scrapingbee.com/api/v1/');
-    scrapingBeeUrl.searchParams.append('api_key', SCRAPINGBEE_API_KEY);
-    scrapingBeeUrl.searchParams.append('url', url);
-    scrapingBeeUrl.searchParams.append('render_js', 'false'); // Set to true if you need JavaScript rendering
-    scrapingBeeUrl.searchParams.append('block_ads', 'true');
-    scrapingBeeUrl.searchParams.append('block_resources', 'false');
-    
-    const response = await fetch(scrapingBeeUrl.toString());
-    
-    if (!response.ok) {
-      console.error('ScrapingBee error:', response.status, response.statusText);
-      return NextResponse.json({ 
-        error: 'Failed to scrape URL',
-        status: response.status,
-        message: response.statusText
+        error: 'ScrapingBee API key not configured'
       }, { status: 500 });
     }
 
-    const html = await response.text();
-    
-    // Process the HTML
-    const result = extractDataFromHTML(html, url);
-    
-    return NextResponse.json(result);
+    // Prepare author data object
+    const authorData = {
+      name: authorName,
+      jobTitle: '',
+      description: '',
+      image: '',
+      sameAs: [],
+      knowsAbout: [],
+      worksFor: '',
+      alumniOf: ''
+    };
+
+    // Common about/team page patterns
+    const aboutPagePatterns = [
+      '/about-us',
+      '/about',
+      '/team',
+      '/our-team',
+      '/people',
+      '/staff'
+    ];
+
+    // Try to find author info on about/team pages
+    for (const pattern of aboutPagePatterns) {
+      const aboutUrl = `${siteUrl}${pattern}`;
+      
+      try {
+        const html = await fetchPage(aboutUrl, SCRAPINGBEE_API_KEY);
+        if (html) {
+          const extracted = extractAuthorFromAboutPage(html, authorName);
+          if (extracted.found) {
+            Object.assign(authorData, extracted);
+            break;
+          }
+        }
+      } catch (e) {
+        // Continue to next pattern
+        console.log(`Skipping ${aboutUrl}:`, e);
+      }
+    }
+
+    // Try author-specific page patterns
+    const authorSlugVariations = generateAuthorSlugs(authorName);
+    const authorPagePatterns = [
+      '/author/',
+      '/authors/',
+      '/team/',
+      '/staff/',
+      '/writer/',
+      '/contributor/'
+    ];
+
+    for (const prefix of authorPagePatterns) {
+      for (const slug of authorSlugVariations) {
+        const authorUrl = `${siteUrl}${prefix}${slug}`;
+        
+        try {
+          const html = await fetchPage(authorUrl, SCRAPINGBEE_API_KEY);
+          if (html) {
+            const extracted = extractAuthorFromProfilePage(html, authorName);
+            if (extracted.found) {
+              Object.assign(authorData, extracted);
+              // Author profile pages are usually more detailed, so we prioritize them
+              return NextResponse.json({ enriched: true, authorData });
+            }
+          }
+        } catch (e) {
+          // Continue to next pattern
+          console.log(`Skipping ${authorUrl}:`, e);
+        }
+      }
+    }
+
+    // Return whatever data we found
+    return NextResponse.json({ 
+      enriched: authorData.jobTitle || authorData.description ? true : false,
+      authorData 
+    });
 
   } catch (error) {
-    console.error('Scraping error:', error);
+    console.error('Author enrichment error:', error);
     return NextResponse.json(
-      { error: 'Failed to scrape URL', details: error instanceof Error ? error.message : 'Unknown error' }, 
+      { error: 'Failed to enrich author data', details: error instanceof Error ? error.message : 'Unknown error' }, 
       { status: 500 }
     );
   }
 }
 
-function extractDataFromHTML(html: string, url: string) {
-  // Extract title
-  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-  const title = titleMatch ? titleMatch[1].trim() : '';
-  
-  // Extract meta description
-  const descMatch = html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i);
-  const description = descMatch ? descMatch[1] : '';
-  
-  // Extract Open Graph data
-  const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)?.[1];
-  const ogDescription = html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i)?.[1];
-  const ogType = html.match(/<meta[^>]+property=["']og:type["'][^>]+content=["']([^"']+)["']/i)?.[1];
-  const ogSiteName = html.match(/<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']+)["']/i)?.[1];
-  
-  // Extract structured data if present
-  const jsonLdMatches = html.match(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
-  const existingSchemas = [];
-  
-  if (jsonLdMatches) {
-    for (const match of jsonLdMatches) {
-      try {
-        const jsonContent = match
-          .replace(/<script[^>]+type=["']application\/ld\+json["'][^>]*>/i, '')
-          .replace(/<\/script>/i, '')
-          .trim();
-        const parsed = JSON.parse(jsonContent);
-        existingSchemas.push(parsed);
-      } catch (e) {
-        // Invalid JSON, skip
-      }
+async function fetchPage(url: string, apiKey: string): Promise<string | null> {
+  try {
+    const scrapingBeeUrl = new URL('https://app.scrapingbee.com/api/v1/');
+    scrapingBeeUrl.searchParams.append('api_key', apiKey);
+    scrapingBeeUrl.searchParams.append('url', url);
+    scrapingBeeUrl.searchParams.append('render_js', 'false');
+    
+    const response = await fetch(scrapingBeeUrl.toString());
+    
+    if (!response.ok) {
+      return null;
     }
+    
+    return await response.text();
+  } catch (error) {
+    console.error('Error fetching page:', error);
+    return null;
+  }
+}
+
+function generateAuthorSlugs(authorName: string): string[] {
+  const parts = authorName.toLowerCase().split(' ');
+  const slugs = [];
+  
+  // Full name variations
+  slugs.push(parts.join('-')); // nathan-smith
+  slugs.push(parts.join('')); // nathansmith
+  slugs.push(parts.join('_')); // nathan_smith
+  slugs.push(parts.join('.')); // nathan.smith
+  
+  // First name only
+  if (parts[0]) {
+    slugs.push(parts[0]); // nathan
   }
   
-  // Extract organization name
-  let organizationName = ogSiteName || '';
-  
-  if (!organizationName) {
-    // Try to extract from domain
-    const domain = new URL(url).hostname.replace('www.', '');
-    const domainParts = domain.split('.');
-    if (domainParts[0] && domainParts[0] !== 'www') {
-      organizationName = domainParts[0]
-        .replace(/^(try|get|buy|shop)/, '')
-        .replace(/-/g, ' ');
-      // Capitalize each word
-      organizationName = organizationName
-        .split(' ')
-        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(' ');
-    }
+  // Last name only
+  if (parts[1]) {
+    slugs.push(parts[1]); // smith
   }
   
-  // Try to extract from title (look for patterns like "| SNOW® Oral Care")
-  if (!organizationName) {
-    const titleOrgMatch = title.match(/\|\s*([^|]+?)(?:®|™|©)?(?:\s+(?:Oral Care|Inc|LLC|Corp|Company|Co\.))?$/i);
-    if (titleOrgMatch) {
-      organizationName = titleOrgMatch[1].trim();
-    }
+  // First initial + last name
+  if (parts[0] && parts[1]) {
+    slugs.push(parts[0][0] + parts[1]); // nsmith
+    slugs.push(parts[0][0] + '-' + parts[1]); // n-smith
   }
   
-  // Extract author/writer
-  let authorName = '';
+  return slugs;
+}
+
+function extractAuthorFromAboutPage(html: string, authorName: string): any {
+  const result = {
+    found: false,
+    jobTitle: '',
+    description: '',
+    image: '',
+    sameAs: [],
+    knowsAbout: []
+  };
+
+  // Create a case-insensitive search pattern for the author
+  const authorPattern = new RegExp(authorName.replace(/\s+/g, '\\s*'), 'i');
   
-  // TODO: Enhanced E-E-A-T Author Information
-  // Future enhancement: After finding author name, make additional requests to:
-  // 1. Check /about-us, /about, /team pages for author info
-  // 2. Check /authors/[authorname] or /author/[authorname] pages
-  // 3. Extract author's role, expertise, bio, social profiles
-  // 4. Build enhanced Person schema with:
-  //    - jobTitle, worksFor, alumniOf, knowsAbout
-  //    - sameAs (social profiles)
-  //    - description (bio)
-  // This would greatly improve E-E-A-T signals
+  // Look for author section
+  const authorSectionPattern = new RegExp(
+    `<[^>]+>([^<]*${authorName}[^<]*)<\\/[^>]+>([\\s\\S]*?)(?=<[^>]+>[^<]*(?:${authorName}|team|staff|about)[^<]*<\\/|$)`,
+    'i'
+  );
   
-  // First check existing schemas
-  if (existingSchemas.length > 0) {
-    for (const schema of existingSchemas) {
-      if (schema.author?.name) {
-        authorName = schema.author.name;
-        break;
-      } else if (schema['@graph']) {
-        // Check graph arrays
-        for (const item of schema['@graph']) {
-          if (item.author?.name) {
-            authorName = item.author.name;
-            break;
-          }
-        }
-      }
-    }
-  }
-  
-  // Try meta tags
-  if (!authorName) {
-    const authorMeta = html.match(/<meta[^>]+name=["']author["'][^>]+content=["']([^"']+)["']/i);
-    if (authorMeta) {
-      authorName = authorMeta[1];
-    }
-  }
-  
-  // Look for common author patterns in the HTML
-  if (!authorName) {
-    const authorPatterns = [
-      /(?:Written by|Author:|By:?)\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/,
-      /(?:Written by|Author:|By:?)\s*<[^>]*>([^<]+)</i,
-      /<span[^>]+class=["'][^"']*author[^"']*["'][^>]*>([^<]+)</i,
-      /<div[^>]+class=["'][^"']*author[^"']*["'][^>]*>([^<]+)</i,
-      /<a[^>]+class=["'][^"']*author[^"']*["'][^>]*>([^<]+)</i,
-      /class=["']author-name["'][^>]*>([^<]+)</i,
-      /Written by\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/,
-      /By\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*(?:<|$|\n)/
+  const sectionMatch = html.match(authorSectionPattern);
+  if (sectionMatch) {
+    result.found = true;
+    const sectionContent = sectionMatch[2];
+    
+    // Extract job title (usually follows name closely)
+    const titlePatterns = [
+      /<(?:h3|h4|p|span|div)[^>]*>([^<]+(?:writer|author|editor|journalist|contributor|specialist|expert|manager|director|founder|ceo|cto)[^<]*)</i,
+      /(?:title|position|role)[:"\s]+([^<"]+)/i
     ];
     
-    for (const pattern of authorPatterns) {
-      const match = html.match(pattern);
-      if (match && match[1]) {
-        const potentialAuthor = match[1].trim().replace(/^by\s+/i, '');
-        // Filter out common false positives
-        if (potentialAuthor && 
-            potentialAuthor.length > 2 && 
-            potentialAuthor.length < 50 &&
-            !potentialAuthor.toLowerCase().includes('posted') &&
-            !potentialAuthor.toLowerCase().includes('category') &&
-            !potentialAuthor.toLowerCase().includes('tag') &&
-            /^[A-Z][a-z]+(\s+[A-Z][a-z]+)*$/.test(potentialAuthor)) {
-          authorName = potentialAuthor;
-          break;
+    for (const pattern of titlePatterns) {
+      const match = sectionContent.match(pattern);
+      if (match) {
+        result.jobTitle = match[1].trim();
+        break;
+      }
+    }
+    
+    // Extract bio/description
+    const bioPattern = /<p[^>]*>([^<]{50,})</;
+    const bioMatch = sectionContent.match(bioPattern);
+    if (bioMatch) {
+      result.description = bioMatch[1].trim();
+    }
+    
+    // Extract social links
+    const socialPatterns = [
+      /href=["']([^"']*(?:linkedin|twitter|facebook|instagram)[^"']*)/gi,
+      /href=["']([^"']*\/in\/[^"']*)/gi // LinkedIn specific
+    ];
+    
+    for (const pattern of socialPatterns) {
+      let match;
+      while ((match = pattern.exec(sectionContent)) !== null) {
+        if (!result.sameAs.includes(match[1])) {
+          result.sameAs.push(match[1]);
         }
       }
     }
   }
   
-  // Extract main content
-  let textContent = '';
-  
-  // Remove scripts, styles, and other non-content elements
-  const cleanHtml = html
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
-    .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
-    .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '');
-  
-  // Try to find main content area
-  const contentPatterns = [
-    /<article[^>]*>([\s\S]*?)<\/article>/i,
-    /<main[^>]*>([\s\S]*?)<\/main>/i,
-    /<div[^>]+class=["'][^"']*content[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
-    /<div[^>]+class=["'][^"']*post[^"']*["'][^>]*>([\s\S]*?)<\/div>/i
+  return result;
+}
+
+function extractAuthorFromProfilePage(html: string, authorName: string): any {
+  const result = {
+    found: false,
+    jobTitle: '',
+    description: '',
+    image: '',
+    sameAs: [],
+    knowsAbout: [],
+    worksFor: '',
+    alumniOf: ''
+  };
+
+  // Check if this is actually the author's page
+  if (!html.toLowerCase().includes(authorName.toLowerCase())) {
+    return result;
+  }
+
+  result.found = true;
+
+  // Extract job title
+  const titlePatterns = [
+    /<(?:h2|h3|p|span)[^>]*class=["'][^"']*(?:title|role|position|job)[^"']*["'][^>]*>([^<]+)</i,
+    /(?:Job Title|Position|Role)[\s:]*<[^>]*>([^<]+)</i,
+    /<meta[^>]+property=["']profile:job_title["'][^>]+content=["']([^"']+)["']/i
   ];
   
-  for (const pattern of contentPatterns) {
-    const match = cleanHtml.match(pattern);
-    if (match && match[1]) {
-      textContent = match[1];
+  for (const pattern of titlePatterns) {
+    const match = html.match(pattern);
+    if (match) {
+      result.jobTitle = match[1].trim();
       break;
     }
   }
+
+  // Extract bio
+  const bioPatterns = [
+    /<(?:div|p)[^>]*class=["'][^"']*(?:bio|about|description|summary)[^"']*["'][^>]*>([^<]+(?:<[^>]+>[^<]+)*)</i,
+    /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i
+  ];
   
-  // Fallback to all text
-  if (!textContent) {
-    textContent = cleanHtml;
+  for (const pattern of bioPatterns) {
+    const match = html.match(pattern);
+    if (match) {
+      result.description = match[1].replace(/<[^>]+>/g, '').trim();
+      break;
+    }
   }
+
+  // Extract expertise/knowledge areas
+  const expertisePatterns = [
+    /(?:expertise|specializes|knows about|expert in)[\s:]*([^<.]+)/i,
+    /<(?:ul|div)[^>]*class=["'][^"']*(?:skills|expertise|specialties)[^"']*["'][^>]*>([\s\S]*?)<\/(?:ul|div)>/i
+  ];
   
-  // Clean up the text content
-  textContent = textContent
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .substring(0, 10000); // Limit to 10k chars
-  
-  // Extract published date
-  let publishedDate = '';
-  let modifiedDate = '';
-  
-  // Try meta tags first
-  const datePublishedMeta = html.match(/<meta[^>]+property=["']article:published_time["'][^>]+content=["']([^"']+)["']/i);
-  if (datePublishedMeta) {
-    publishedDate = datePublishedMeta[1];
-  }
-  
-  const dateModifiedMeta = html.match(/<meta[^>]+property=["']article:modified_time["'][^>]+content=["']([^"']+)["']/i);
-  if (dateModifiedMeta) {
-    modifiedDate = dateModifiedMeta[1];
-  }
-  
-  // Look for date patterns in HTML
-  if (!publishedDate) {
-    const datePatterns = [
-      /<span[^>]+class=["'][^"']*date["'][^>]*>([^<]+)</i,
-      /<time[^>]+datetime=["']([^"']+)["']/i,
-      /(?:Published|Posted|Date)[\s:]*([A-Z][a-z]+\s+\d{1,2},?\s+\d{4})/i,
-      /(?:Published|Posted|Date)[\s:]*(\d{1,2}[-\/]\d{1,2}[-\/]\d{4})/,
-      /<meta[^>]+name=["']publish_date["'][^>]+content=["']([^"']+)["']/i
-    ];
-    
-    for (const pattern of datePatterns) {
-      const match = html.match(pattern);
-      if (match && match[1]) {
-        // Parse the date
-        const dateStr = match[1].trim();
-        const parsedDate = new Date(dateStr);
-        if (!isNaN(parsedDate.getTime())) {
-          publishedDate = parsedDate.toISOString();
-          break;
-        }
+  for (const pattern of expertisePatterns) {
+    const match = html.match(pattern);
+    if (match) {
+      // Extract individual items
+      const items = match[1].match(/>([^<]+)</g);
+      if (items) {
+        result.knowsAbout = items.map(item => item.replace(/[><]/g, '').trim());
       }
+      break;
     }
   }
-  
-  // Extract logo URL
-  let logoUrl = '';
-  
-  // Try Open Graph image first
-  const ogImage = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i);
-  if (ogImage) {
-    logoUrl = ogImage[1];
+
+  // Extract social profiles
+  const socialUrls = html.match(/href=["']([^"']*(?:linkedin|twitter|facebook|instagram|youtube)[^"']*)/gi);
+  if (socialUrls) {
+    result.sameAs = socialUrls.map(url => url.replace(/href=["']/i, '').replace(/["']$/, ''));
   }
+
+  // Extract organization
+  const orgPatterns = [
+    /(?:works? (?:at|for)|employed by)[\s:]*<[^>]*>([^<]+)</i,
+    /(?:company|organization)[\s:]*<[^>]*>([^<]+)</i
+  ];
   
-  // Try to find logo in common patterns
-  if (!logoUrl) {
-    const logoPatterns = [
-      /<img[^>]+class=["']logo["'][^>]+src=["']([^"']+)["']/i,
-      /<img[^>]+class=["'][^"']*logo[^"']*["'][^>]+src=["']([^"']+)["']/i,
-      /<img[^>]+id=["'][^"']*logo[^"']*["'][^>]+src=["']([^"']+)["']/i,
-      /<img[^>]+alt=["'][^"']*logo[^"']*["'][^>]+src=["']([^"']+)["']/i,
-      /class=["']logo["'][^>]*>\s*<img[^>]+src=["']([^"']+)["']/i,
-      /<a[^>]+class=["']logo["'][^>]*>\s*<img[^>]+src=["']([^"']+)["']/i,
-      /src=["']([^"']+logo[^"']+)["']/i
-    ];
-    
-    for (const pattern of logoPatterns) {
-      const match = html.match(pattern);
-      if (match && match[1]) {
-        logoUrl = match[1];
-        // Handle protocol-relative URLs
-        if (logoUrl.startsWith('//')) {
-          logoUrl = `https:${logoUrl}`;
-        } else if (logoUrl.startsWith('/')) {
-          // Make absolute URL if relative
-          const urlObj = new URL(url);
-          logoUrl = `${urlObj.origin}${logoUrl}`;
-        }
-        break;
+  for (const pattern of orgPatterns) {
+    const match = html.match(pattern);
+    if (match) {
+      result.worksFor = match[1].trim();
+      break;
+    }
+  }
+
+  // Extract education
+  const eduPatterns = [
+    /(?:graduated from|alumni of|studied at)[\s:]*<[^>]*>([^<]+)</i,
+    /(?:education|university|college)[\s:]*<[^>]*>([^<]+)</i
+  ];
+  
+  for (const pattern of eduPatterns) {
+    const match = html.match(pattern);
+    if (match) {
+      result.alumniOf = match[1].trim();
+      break;
+    }
+  }
+
+  // Extract profile image
+  const imgPatterns = [
+    /<img[^>]+class=["'][^"']*(?:author|profile|avatar)[^"']*["'][^>]+src=["']([^"']+)["']/i,
+    /<img[^>]+alt=["'][^"']*${authorName}[^"']*["'][^>]+src=["']([^"']+)["']/i
+  ];
+  
+  for (const pattern of imgPatterns) {
+    const match = html.match(pattern);
+    if (match) {
+      result.image = match[1];
+      if (result.image.startsWith('//')) {
+        result.image = `https:${result.image}`;
+      } else if (result.image.startsWith('/')) {
+        // We'll need to make this absolute later with the base URL
+        result.image = result.image;
       }
+      break;
     }
   }
-  
-  return {
-    url,
-    title: title || ogTitle || '',
-    description: description || ogDescription || '',
-    content: textContent,
-    pageType: ogType || 'WebPage',
-    organizationName,
-    authorName,
-    publishedDate,
-    modifiedDate,
-    logoUrl,
-    existingSchemas,
-    metadata: {
-      ogTitle,
-      ogDescription,
-      ogType,
-      ogSiteName,
-      hasExistingSchema: existingSchemas.length > 0,
-      schemaCount: existingSchemas.length
-    }
-  };
+
+  return result;
 }
