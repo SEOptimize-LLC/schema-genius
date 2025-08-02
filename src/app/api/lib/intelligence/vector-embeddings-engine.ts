@@ -281,3 +281,40 @@ export class VectorEmbeddingsEngine {
       sum + (textLower.includes(word) ? 1 : 0), 0
     ) / positiveWords.length;
     const neg
+
+    private extractContextualFeatures(text: string): number[] {
+    const features: number[] = [];
+    
+    // Sentiment indicators
+    const positiveWords = ['good', 'great', 'excellent', 'best', 'amazing', 'love'];
+    const negativeWords = ['bad', 'poor', 'worst', 'terrible', 'hate', 'awful'];
+    
+    const textLower = text.toLowerCase();
+    const positiveScore = positiveWords.reduce((sum, word) => 
+      sum + (textLower.includes(word) ? 1 : 0), 0
+    ) / positiveWords.length;
+    const negativeScore = negativeWords.reduce((sum, word) => 
+      sum + (textLower.includes(word) ? 1 : 0), 0
+    ) / negativeWords.length;
+    
+    features.push(positiveScore);
+    features.push(negativeScore);
+    
+    // Action words (important for HowTo detection)
+    const actionWords = ['create', 'make', 'build', 'develop', 'design', 'implement'];
+    const actionScore = actionWords.reduce((sum, word) => 
+      sum + (textLower.includes(word) ? 1 : 0), 0
+    ) / actionWords.length;
+    features.push(actionScore);
+    
+    // Temporal indicators
+    const temporalWords = ['today', 'tomorrow', 'yesterday', 'now', 'soon', 'recent'];
+    const temporalScore = temporalWords.reduce((sum, word) => 
+      sum + (textLower.includes(word) ? 1 : 0), 0
+    ) / temporalWords.length;
+    features.push(temporalScore);
+    
+    // Pad to 68 dimensions (to reach 768 total)
+    while (features.length < 68) features.push(0);
+    return features.slice(0, 68);
+  }
