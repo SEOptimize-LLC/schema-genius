@@ -54,7 +54,6 @@ export default function Home() {
     content: ''
   });
 
-  // Improved entity extraction
   // Helper function to determine audience - universal approach
   const determineAudience = (content: string, entities: Entity[]): any => {
     const contentLower = content.toLowerCase();
@@ -133,51 +132,54 @@ export default function Home() {
     return teaches;
   };
 
+  // Universal entity extraction - works for any industry
   const extractEntities = (text: string): Entity[] => {
     const entities: Entity[] = [];
     const foundEntities = new Set<string>();
     
-    // Domain-specific entities for dental/health content
-    const domainEntities = {
-      dental: [
-        'toothpaste', 'fluoride', 'hydroxyapatite', 'cavity', 'cavities', 'enamel', 
-        'tooth decay', 'oral health', 'dental care', 'teeth whitening', 'plaque',
-        'tartar', 'gingivitis', 'gum disease', 'oral hygiene', 'brushing', 'flossing'
-      ],
-      ingredients: [
-        'calcium', 'phosphate', 'xylitol', 'nano-hydroxyapatite', 'minerals',
-        'natural ingredients', 'fluoride-free', 'non-toxic', 'chemical-free'
-      ],
-      health: [
-        'remineralization', 'tooth sensitivity', 'oral microbiome', 'pH balance',
-        'cavity prevention', 'enamel protection', 'gum health'
-      ],
-      audience: [
-        'kids', 'children', 'toddlers', 'pediatric', 'family', 'parents'
-      ],
-      product: [
-        'SNOW', 'oral care', 'toothbrush', 'mouthwash', 'dental products'
-      ]
-    };
-
-    // Check for domain entities (case-insensitive)
-    Object.entries(domainEntities).forEach(([category, terms]) => {
-      terms.forEach(term => {
-        const regex = new RegExp(`\\b${term}\\b`, 'gi');
-        if (regex.test(text) && !foundEntities.has(term.toLowerCase())) {
-          foundEntities.add(term.toLowerCase());
-          entities.push({
-            name: term.split(' ').map(word => 
-              word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-            ).join(' '),
-            type: category,
-            confidence: 0.9
-          });
+    // Extract named entities (proper nouns, organizations, concepts)
+    // This is simplified - in production you'd use NLP libraries
+    
+    // 1. Extract capitalized phrases (potential proper nouns/entities)
+    const capitalizedPhrases = text.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b/g) || [];
+    
+    capitalizedPhrases.forEach(phrase => {
+      // Filter out common words that are capitalized at sentence start
+      const commonWords = ['The', 'This', 'That', 'These', 'Those', 'What', 'When', 'Where', 'Who', 'Why', 'How'];
+      
+      if (!commonWords.includes(phrase) && 
+          !foundEntities.has(phrase.toLowerCase()) && 
+          phrase.length > 2) {
+        
+        foundEntities.add(phrase.toLowerCase());
+        
+        // Determine entity type based on context
+        let entityType = 'concept';
+        const context = text.substring(
+          Math.max(0, text.indexOf(phrase) - 50),
+          Math.min(text.length, text.indexOf(phrase) + phrase.length + 50)
+        ).toLowerCase();
+        
+        if (context.includes('company') || context.includes('corporation') || context.includes('inc') || context.includes('llc')) {
+          entityType = 'organization';
+        } else if (context.includes('product') || context.includes('service') || context.includes('solution')) {
+          entityType = 'product';
+        } else if (context.includes('located') || context.includes('city') || context.includes('country')) {
+          entityType = 'place';
+        } else if (phrase.split(' ').length === 2 && !phrase.includes('&')) {
+          // Might be a person's name
+          entityType = 'person';
         }
-      });
+        
+        entities.push({
+          name: phrase,
+          type: entityType,
+          confidence: 0.7
+        });
+      }
     });
-
-    // Extract brand names (look for ® ™ © symbols)
+    
+    // 2. Extract brand names (with ® ™ © symbols)
     const brandMatches = text.match(/([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*)(?:[®™©])/g);
     if (brandMatches) {
       brandMatches.forEach(match => {
@@ -192,11 +194,48 @@ export default function Home() {
         }
       });
     }
-
-    // Sort by confidence and limit to most relevant
+    
+    // 3. Extract key concepts based on frequency and importance
+    // Get words that appear multiple times (likely important concepts)
+    const words = text.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
+    const wordFreq = new Map<string, number>();
+    
+    words.forEach(word => {
+      if (!foundEntities.has(word)) {
+        wordFreq.set(word, (wordFreq.get(word) || 0) + 1);
+      }
+    });
+    
+    // Add high-frequency terms as concepts
+    Array.from(wordFreq.entries())
+      .filter(([word, freq]) => freq >= 3 && word.length > 5)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .forEach(([word, freq]) => {
+        entities.push({
+          name: word.charAt(0).toUpperCase() + word.slice(1),
+          type: 'concept',
+          confidence: Math.min(0.6 + (freq * 0.05), 0.9)
+        });
+      });
+    
+    // 4. Look for acronyms (might be important organizations/concepts)
+    const acronyms = text.match(/\b[A-Z]{2,}\b/g) || [];
+    acronyms.forEach(acronym => {
+      if (!foundEntities.has(acronym.toLowerCase()) && acronym.length <= 10) {
+        foundEntities.add(acronym.toLowerCase());
+        entities.push({
+          name: acronym,
+          type: 'organization',
+          confidence: 0.8
+        });
+      }
+    });
+    
+    // Sort by confidence and return top entities
     return entities
       .sort((a, b) => b.confidence - a.confidence)
-      .slice(0, 20); // Limit to top 20 entities
+      .slice(0, 20);
   };
 
   const scrapeUrl = async (url: string) => {
@@ -237,7 +276,7 @@ export default function Home() {
     // Build schema based on detected page type
     let generatedSchema: SchemaType;
     
-        if (pageType === 'article' || content.toLowerCase().includes('article') || content.toLowerCase().includes('blog')) {
+    if (pageType === 'article' || content.toLowerCase().includes('article') || content.toLowerCase().includes('blog')) {
       // Calculate word count
       const wordCount = content.split(/\s+/).filter((word: string) => word.length > 0).length;
       
@@ -266,23 +305,34 @@ export default function Home() {
       
       generatedSchema = {
         "@context": "https://schema.org",
-        "@type": "BlogPosting", // Changed from "Article" to "BlogPosting"
+        "@type": "BlogPosting",
+        "@id": `${url}#BlogPosting`,
+        "mainEntityOfPage": url,
         "headline": title,
-        "url": url,
+        "name": title,
         "description": description || content.substring(0, 160),
+        "abstract": abstract,
         "articleBody": content,
+        "wordCount": wordCount,
         "datePublished": urlData.publishedDate || new Date().toISOString(),
         "dateModified": urlData.modifiedDate || urlData.publishedDate || new Date().toISOString(),
         "author": finalAuthorName ? (enrichedAuthor ? {
           "@type": "Person",
+          "@id": `${urlObj.origin}/author/${finalAuthorName.toLowerCase().replace(/\s+/g, '-')}#Person`,
           "name": finalAuthorName,
+          "url": `${urlObj.origin}/author/${finalAuthorName.toLowerCase().replace(/\s+/g, '-')}`,
           "jobTitle": enrichedAuthor.jobTitle || undefined,
           "description": enrichedAuthor.description || undefined,
-          "image": enrichedAuthor.image || undefined,
+          "image": enrichedAuthor.image ? {
+            "@type": "ImageObject",
+            "@id": enrichedAuthor.image,
+            "url": enrichedAuthor.image
+          } : undefined,
           "sameAs": enrichedAuthor.sameAs?.length > 0 ? enrichedAuthor.sameAs : undefined,
           "knowsAbout": enrichedAuthor.knowsAbout?.length > 0 ? enrichedAuthor.knowsAbout : undefined,
           "worksFor": (enrichedAuthor.worksFor || finalOrgName) ? {
             "@type": "Organization",
+            "@id": urlObj.origin,
             "name": enrichedAuthor.worksFor || finalOrgName
           } : undefined,
           "alumniOf": enrichedAuthor.alumniOf || undefined
@@ -312,14 +362,42 @@ export default function Home() {
         })) : undefined,
         "publisher": finalOrgName ? {
           "@type": "Organization",
+          "@id": urlObj.origin,
           "name": finalOrgName,
           "logo": {
             "@type": "ImageObject",
-            "url": urlData.logoUrl || `${new URL(url).origin}/assets/logo.png`
+            "@id": urlData.logoUrl || `${urlObj.origin}/assets/logo.png`,
+            "url": urlData.logoUrl || `${urlObj.origin}/assets/logo.png`,
+            "width": "600",
+            "height": "60"
           }
         } : undefined,
-        "keywords": entities.map(e => e.name).join(', '),
-        "about": entities.filter(e => e.confidence > 0.7).map(entity => ({
+        "image": urlData.featuredImage ? {
+          "@type": "ImageObject",
+          "@id": urlData.featuredImage,
+          "url": urlData.featuredImage
+        } : undefined,
+        "inLanguage": urlData.language || "en-US",
+        "isPartOf": blogPath ? {
+          "@type": "Blog",
+          "@id": `${urlObj.origin}/${blogPath}/`,
+          "name": `${finalOrgName || 'Company'} Blog`,
+          "publisher": finalOrgName ? {
+            "@type": "Organization",
+            "@id": urlObj.origin,
+            "name": finalOrgName
+          } : undefined
+        } : undefined,
+        "audience": audience,
+        "teaches": teaches.length > 0 ? teaches : undefined,
+        "keywords": entities.filter(e => e.confidence > 0.8).map(e => e.name).slice(0, 10).join(', '),
+        "about": entities.filter(e => e.confidence > 0.85 && e.type !== 'brand').slice(0, 5).map(entity => ({
+          "@type": "Thing",
+          "@id": `#${entity.name.toLowerCase().replace(/\s+/g, '-')}`,
+          "name": entity.name,
+          "sameAs": entity.sameAs || undefined
+        })),
+        "mentions": entities.filter(e => e.confidence > 0.7 && e.confidence <= 0.85).slice(0, 10).map(entity => ({
           "@type": "Thing",
           "name": entity.name
         }))
