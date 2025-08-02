@@ -63,12 +63,75 @@ export async function POST(request: Request) {
       }
     }
 
+    // Extract organization name
+    let organizationName = '';
+    
+    // Try to extract from domain
+    const domain = new URL(url).hostname.replace('www.', '');
+    const domainParts = domain.split('.');
+    if (domainParts[0] && domainParts[0] !== 'www') {
+      // Clean up common patterns like "trysnow" -> "Snow"
+      organizationName = domainParts[0]
+        .replace(/^try/, '')
+        .replace(/^get/, '')
+        .replace(/^buy/, '')
+        .replace(/^shop/, '');
+      organizationName = organizationName.charAt(0).toUpperCase() + organizationName.slice(1);
+    }
+    
+    // Try to extract from title (look for patterns like "| SNOW® Oral Care")
+    const titleOrgMatch = title.match(/\|\s*([^|]+?)(?:®|™|©)?(?:\s+(?:Oral Care|Inc|LLC|Corp|Company|Co\.))?$/i);
+    if (titleOrgMatch) {
+      organizationName = titleOrgMatch[1].trim();
+    }
+    
+    // Try from meta tags
+    const siteNameMatch = html.match(/<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']+)["']/i);
+    if (siteNameMatch) {
+      organizationName = siteNameMatch[1];
+    }
+    
+    // Extract author/writer
+    let authorName = '';
+    
+    // Common patterns for author detection
+    const authorPatterns = [
+      /<meta[^>]+name=["']author["'][^>]+content=["']([^"']+)["']/i,
+      /(?:Written by|Author|By|Posted by)[\s:]*<[^>]*>([^<]+)</i,
+      /(?:Written by|Author|By|Posted by)[\s:]*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/,
+      /<span[^>]+class=["'][^"']*author[^"']*["'][^>]*>([^<]+)</i,
+      /<div[^>]+class=["'][^"']*author[^"']*["'][^>]*>([^<]+)</i,
+      /"author":\s*{\s*"@type":\s*"Person",\s*"name":\s*"([^"]+)"/
+    ];
+    
+    for (const pattern of authorPatterns) {
+      const match = html.match(pattern);
+      if (match && match[1]) {
+        authorName = match[1].trim();
+        // Clean up author name
+        authorName = authorName.replace(/^by\s+/i, '').trim();
+        break;
+      }
+    }
+    
+    // Try to extract from JSON-LD
+    if (!authorName && existingSchemas.length > 0) {
+      for (const schema of existingSchemas) {
+        if (schema.author?.name) {
+          authorName = schema.author.name;
+          break;
+        }
+      }
+    }
+
     return NextResponse.json({
       url,
       title: title || ogTitle || '',
       description: description || ogDescription || '',
       content: textContent,
       pageType: ogType || 'WebPage',
+      organizationName,
+      authorName,
       existingSchemas,
       metadata: {
         ogTitle,

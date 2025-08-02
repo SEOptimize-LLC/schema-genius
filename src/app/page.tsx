@@ -111,7 +111,11 @@ export default function Home() {
   };
 
   const generateSchemaForUrl = async (urlData: any) => {
-    const { url, title, description, content, pageType, existingSchemas } = urlData;
+    const { url, title, description, content, pageType, existingSchemas, organizationName: extractedOrg, authorName: extractedAuthor } = urlData;
+    
+    // Use extracted values if user hasn't provided their own
+    const finalOrgName = organizationName || extractedOrg;
+    const finalAuthorName = authorName || extractedAuthor;
     
     // Extract entities from content
     const entities = extractEntities(content);
@@ -129,13 +133,13 @@ export default function Home() {
         "articleBody": content,
         "datePublished": new Date().toISOString(),
         "dateModified": new Date().toISOString(),
-        "author": authorName ? {
+        "author": finalAuthorName ? {
           "@type": "Person",
-          "name": authorName
+          "name": finalAuthorName
         } : undefined,
-        "publisher": organizationName ? {
+        "publisher": finalOrgName ? {
           "@type": "Organization",
-          "name": organizationName,
+          "name": finalOrgName,
           "logo": {
             "@type": "ImageObject",
             "url": `${new URL(url).origin}/logo.png`
@@ -172,11 +176,11 @@ export default function Home() {
       };
       
       // Add Organization if provided
-      if (organizationName && generatedSchema["@graph"]) {
+      if (finalOrgName && generatedSchema["@graph"]) {
         generatedSchema["@graph"].push({
           "@type": "Organization",
           "@id": `${new URL(url).origin}#organization`,
-          "name": organizationName,
+          "name": finalOrgName,
           "url": new URL(url).origin
         });
       }
@@ -196,6 +200,14 @@ export default function Home() {
       // Scrape the URL
       const scrapedData = await scrapeUrl(singleUrl);
       setScrapedContent(scrapedData);
+      
+      // Auto-fill organization and author if found
+      if (scrapedData.organizationName && !organizationName) {
+        setOrganizationName(scrapedData.organizationName);
+      }
+      if (scrapedData.authorName && !authorName) {
+        setAuthorName(scrapedData.authorName);
+      }
       
       // Generate schema
       const { schema, entities } = await generateSchemaForUrl(scrapedData);
@@ -342,7 +354,10 @@ export default function Home() {
 
           {/* Organization Settings */}
           <div className="p-4 bg-gray-50 rounded">
-            <h3 className="font-semibold mb-3">Organization Settings (Optional)</h3>
+            <h3 className="font-semibold mb-3">Organization Settings</h3>
+            <p className="text-sm text-gray-600 mb-3">
+              These fields will be auto-populated from the scraped content. You can override them if needed.
+            </p>
             <div className="space-y-3">
               <div>
                 <label className="block text-sm font-medium mb-1">Organization Name</label>
@@ -351,17 +366,17 @@ export default function Home() {
                   className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500"
                   value={organizationName}
                   onChange={(e) => setOrganizationName(e.target.value)}
-                  placeholder="Your Company Name"
+                  placeholder="Auto-detected from URL"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Default Author</label>
+                <label className="block text-sm font-medium mb-1">Author Name</label>
                 <input
                   type="text"
                   className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500"
                   value={authorName}
                   onChange={(e) => setAuthorName(e.target.value)}
-                  placeholder="John Doe"
+                  placeholder="Auto-detected from content"
                 />
               </div>
             </div>
@@ -384,6 +399,12 @@ export default function Home() {
                 <p><strong>Title:</strong> {scrapedContent.title}</p>
                 <p><strong>Description:</strong> {scrapedContent.description?.substring(0, 100)}...</p>
                 <p><strong>Content Length:</strong> {scrapedContent.content.length} characters</p>
+                {scrapedContent.organizationName && (
+                  <p><strong>Organization Detected:</strong> {scrapedContent.organizationName}</p>
+                )}
+                {scrapedContent.authorName && (
+                  <p><strong>Author Detected:</strong> {scrapedContent.authorName}</p>
+                )}
                 {scrapedContent.metadata.hasExistingSchema && (
                   <p className="text-yellow-600">⚠️ This page already has schema markup</p>
                 )}
