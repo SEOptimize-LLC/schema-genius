@@ -340,7 +340,7 @@ function extractDataFromHTML(html: string, url: string) {
     const bodyMatch = cleanHtml.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
     if (bodyMatch) {
       // Remove known non-content areas
-      let bodyContent = bodyMatch[1]
+      const bodyContent = bodyMatch[1]
         .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
         .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
         .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '')
