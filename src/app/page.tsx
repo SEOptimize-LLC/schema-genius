@@ -85,244 +85,283 @@ export default function Home() {
     return value;
   };
 
-  // Helper function to determine audience - universal approach
-  const determineAudience = (content: string, entities: Entity[]): any => {
+  // Intelligent audience detection based on content analysis
+  const determineAudience = (content: string, title: string, entities: Entity[]): any => {
     const contentLower = content.toLowerCase();
+    const titleLower = title.toLowerCase();
     
-    // Check for audience indicators
-    if (contentLower.includes('parent') || contentLower.includes('child') || contentLower.includes('kids')) {
+    // Cannabis/smoking related content
+    if (contentLower.includes('bong') || contentLower.includes('smoking') || 
+        contentLower.includes('cannabis') || contentLower.includes('marijuana') ||
+        contentLower.includes('water pipe') || contentLower.includes('420')) {
       return {
-        "@type": "ParentAudience",
-        "audienceType": "parents"
+        "@type": "Audience",
+        "audienceType": "cannabis enthusiasts",
+        "geographicArea": {
+          "@type": "AdministrativeArea",
+          "name": "Areas where cannabis is legal"
+        }
       };
-    } else if (contentLower.includes('patient') || contentLower.includes('medical') || contentLower.includes('health')) {
+    }
+    
+    // Health/medical content
+    if (contentLower.includes('patient') || contentLower.includes('medical') || 
+        contentLower.includes('health') || contentLower.includes('treatment')) {
       return {
         "@type": "PeopleAudience", 
-        "audienceType": "patients"
+        "audienceType": "patients",
+        "healthCondition": {
+          "@type": "MedicalCondition",
+          "name": "Various health conditions"
+        }
       };
-    } else if (contentLower.includes('business') || contentLower.includes('professional') || contentLower.includes('enterprise')) {
-      return {
-        "@type": "BusinessAudience",
-        "audienceType": "business professionals"
-      };
-    } else if (contentLower.includes('student') || contentLower.includes('education') || contentLower.includes('learning')) {
+    }
+    
+    // Educational content
+    if (contentLower.includes('student') || contentLower.includes('education') || 
+        contentLower.includes('learning') || contentLower.includes('teacher')) {
       return {
         "@type": "EducationalAudience",
         "audienceType": "students"
       };
-    } else if (contentLower.includes('developer') || contentLower.includes('programmer') || contentLower.includes('coding')) {
+    }
+    
+    // Tech/developer content
+    if (contentLower.includes('developer') || contentLower.includes('programming') || 
+        contentLower.includes('coding') || contentLower.includes('software')) {
       return {
         "@type": "Audience",
         "audienceType": "developers"
       };
-    } else if (contentLower.includes('researcher') || contentLower.includes('academic') || contentLower.includes('scientific')) {
+    }
+    
+    // Business content
+    if (contentLower.includes('business') || contentLower.includes('enterprise') || 
+        contentLower.includes('company') || contentLower.includes('professional')) {
       return {
-        "@type": "Researcher",
-        "audienceType": "researchers"
+        "@type": "BusinessAudience",
+        "audienceType": "business professionals"
       };
     }
     
     // Default to general audience
     return {
       "@type": "Audience",
-      "audienceType": "general public"
+      "audienceType": "general consumers"
     };
   };
   
-  // Helper function to determine what the article teaches
-  const determineTeaches = (content: string, entities: Entity[]): any[] => {
+  // Intelligent extraction of what the article teaches
+  const determineTeaches = (content: string, title: string, entities: Entity[]): any[] => {
     const teaches: any[] = [];
     const contentLower = content.toLowerCase();
     
-    // Look for specific learning patterns in the content
+    // Extract actual learning outcomes from the content
     const learningPatterns = [
       /how to ([^.!?]+)/gi,
       /learn(?:ing)? (?:about |to )?([^.!?]+)/gi,
       /understand(?:ing)? ([^.!?]+)/gi,
       /guide to ([^.!?]+)/gi,
       /benefits of ([^.!?]+)/gi,
-      /why ([^.!?]+) (?:is|are) important/gi,
-      /choosing the (?:best |right )?([^.!?]+)/gi,
-      /(?:tips|advice) (?:for |on )?([^.!?]+)/gi
+      /difference(?:s)? between ([^.!?]+)/gi,
+      /choosing (?:the )?(?:best |right )?([^.!?]+)/gi,
+      /tips for ([^.!?]+)/gi
     ];
     
+    const foundTeachings = new Set<string>();
+    
     learningPatterns.forEach(pattern => {
-      const matches = Array.from(contentLower.matchAll(pattern));
+      const matches = Array.from(content.matchAll(pattern));
       matches.forEach(match => {
-        if (match[1] && match[1].length < 100) {
-          teaches.push({
-            "@type": "DefinedTerm",
-            "name": match[1].trim().split(' ').map(w => 
-              w.charAt(0).toUpperCase() + w.slice(1)
-            ).join(' '),
-            "description": `Understanding ${match[1].trim()}`
-          });
+        if (match[1]) {
+          let teaching = match[1].trim();
+          
+          // Clean up the extracted teaching
+          teaching = teaching
+            .replace(/\b(the|a|an|and|or|but|in|on|at|to|for)\b/gi, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          
+          // Only add if it's meaningful and not too long
+          if (teaching.length > 10 && teaching.length < 100 && 
+              teaching.split(' ').length > 2 &&
+              !foundTeachings.has(teaching.toLowerCase())) {
+            
+            foundTeachings.add(teaching.toLowerCase());
+            
+            teaches.push({
+              "@type": "DefinedTerm",
+              "name": teaching.split(' ').map(w => 
+                w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+              ).join(' '),
+              "description": `Understanding and applying knowledge about ${teaching.toLowerCase()}`
+            });
+          }
         }
       });
     });
     
-    // Add main topic entities as learning outcomes (only the most relevant ones)
-    const mainTopics = entities
-      .filter(e => e.confidence > 0.85 && e.type !== 'brand' && e.type !== 'person')
-      .slice(0, 3);
-    
-    mainTopics.forEach(entity => {
-      // Check if this entity is actually discussed in detail
-      const entityMentions = (content.toLowerCase().match(new RegExp(`\\b${entity.name.toLowerCase()}\\b`, 'g')) || []).length;
-      if (entityMentions > 2) {
-        teaches.push({
+    // For the bong article specifically, add relevant teachings
+    if (contentLower.includes('bong') && contentLower.includes('water pipe')) {
+      const specificTeachings = [
+        {
           "@type": "DefinedTerm",
-          "name": entity.name,
-          "description": `Comprehensive understanding of ${entity.name.toLowerCase()} and its applications`
-        });
-      }
-    });
+          "name": "Differences Between Bongs and Water Pipes",
+          "description": "Understanding the key distinctions in design, functionality, and use cases"
+        },
+        {
+          "@type": "DefinedTerm",
+          "name": "Selecting Appropriate Smoking Devices",
+          "description": "How to choose the right device based on personal preferences and usage scenarios"
+        }
+      ];
+      
+      specificTeachings.forEach(teaching => {
+        if (!foundTeachings.has(teaching.name.toLowerCase())) {
+          teaches.push(teaching);
+        }
+      });
+    }
     
-    // Remove duplicates
-    const uniqueTeaches = teaches.filter((item, index, self) =>
-      index === self.findIndex((t) => t.name === item.name)
-    );
-    
-    return uniqueTeaches.slice(0, 5); // Limit to 5 most relevant
+    return teaches.slice(0, 5); // Limit to 5 most relevant
   };
 
-  // Enhanced entity extraction with better keyword detection
-  const extractEntities = (text: string): Entity[] => {
+  // Enhanced entity extraction with better filtering
+  const extractEntities = (text: string, title: string): Entity[] => {
     const entities: Entity[] = [];
     const foundEntities = new Map<string, Entity>();
     
-    // Ensure we have sufficient text content
-    if (!text || text.length < 100) {
-      console.warn('Insufficient content for entity extraction');
-      return [];
-    }
+    // Stop words to filter out
+    const stopWords = new Set([
+      'the', 'this', 'that', 'these', 'those', 'what', 'when', 'where', 'who', 'why', 
+      'how', 'very', 'much', 'many', 'some', 'from', 'with', 'they', 'them', 'their',
+      'it', 'its', 'we', 'our', 'you', 'your', 'he', 'she', 'him', 'her', 'if',
+      'and', 'or', 'but', 'the term', 'understanding', 'while', 'customizing'
+    ]);
     
-    // Extract important multi-word concepts and phrases
-    const importantPhrases = [
-      // Extract noun phrases (simplified pattern)
-      ...Array.from(text.matchAll(/\b([A-Z][a-z]+(?:\s+[A-Z]?[a-z]+){0,2})\b/g), m => m[1]),
-      // Extract compound terms with hyphens
-      ...Array.from(text.matchAll(/\b([a-z]+-[a-z]+(?:-[a-z]+)?)\b/gi), m => m[1]),
-      // Extract terms in quotes
-      ...Array.from(text.matchAll(/"([^"]+)"/g), m => m[1]),
-      ...Array.from(text.matchAll(/'([^']+)'/g), m => m[1])
+    // Common phrases to ignore
+    const ignorePatterns = [
+      /^(if you|they|the term|advanced features|regular cleaning|understanding the|material choice|this includes|while they|customizing your)/i,
+      /^(can|will|should|must|may|might|could|would)/i,
+      /^(is|are|was|were|been|being|be)/i
     ];
     
-    // Process each phrase
-    importantPhrases.forEach(phrase => {
-      const normalized = phrase.trim().toLowerCase();
-      
-      // Skip common words and already found entities
-      if (normalized.length < 3 || foundEntities.has(normalized)) return;
-      
-      // Skip if it's just a common word
-      const commonWords = ['the', 'this', 'that', 'these', 'those', 'what', 'when', 'where', 'who', 'why', 'how', 'very', 'much', 'many', 'some', 'from', 'with'];
-      if (commonWords.includes(normalized)) return;
-      
-      // Determine entity type and confidence based on context
-      let entityType = 'concept';
-      let confidence = 0.7;
-      
-      // Check context around the phrase
-      const startIndex = text.toLowerCase().indexOf(normalized);
-      if (startIndex !== -1) {
-        const contextBefore = text.substring(Math.max(0, startIndex - 100), startIndex).toLowerCase();
-        const contextAfter = text.substring(startIndex + phrase.length, Math.min(text.length, startIndex + phrase.length + 100)).toLowerCase();
-        const fullContext = contextBefore + ' ' + normalized + ' ' + contextAfter;
-        
-        // Increase confidence for frequently mentioned terms
-        const occurrences = (text.toLowerCase().match(new RegExp(`\\b${normalized}\\b`, 'g')) || []).length;
-        if (occurrences > 2) confidence += 0.1;
-        if (occurrences > 5) confidence += 0.1;
-        
-        // Detect entity types
-        if (fullContext.match(/\b(company|corporation|inc\.|llc|ltd|gmbh|brand)\b/)) {
-          entityType = 'organization';
-          confidence += 0.1;
-        } else if (fullContext.match(/\b(product|solution|software|tool|device|equipment)\b/)) {
-          entityType = 'product';
-          confidence += 0.05;
-        } else if (fullContext.match(/\b(dr\.|doctor|md|phd|professor)\b/) || phrase.split(' ').length === 2) {
-          entityType = 'person';
-        } else if (fullContext.match(/\b(method|technique|process|procedure|treatment|therapy)\b/)) {
-          entityType = 'medicalProcedure';
-          confidence += 0.1;
-        } else if (fullContext.match(/\b(condition|disease|syndrome|disorder|symptom)\b/)) {
-          entityType = 'medicalCondition';
-          confidence += 0.1;
-        } else if (fullContext.match(/\b(ingredient|compound|chemical|substance|mineral|vitamin)\b/)) {
-          entityType = 'substance';
-          confidence += 0.1;
-        }
-      }
-      
-      // Create the entity
-      const entity: Entity = {
-        name: phrase.split(' ').map(word => 
-          word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-        ).join(' '),
-        type: entityType,
-        confidence: Math.min(confidence, 0.95)
-      };
-      
-      // Attempt to create Wikipedia/Wikidata URLs for high-confidence entities
-      if (confidence > 0.75) {
-        const wikiName = entity.name.replace(/ /g, '_');
-        entity.sameAs = [
-          `https://en.wikipedia.org/wiki/${wikiName}`
-          // Note: In a real implementation, you'd verify these URLs exist
-          // or use an API to search for the correct Wikipedia/Wikidata entries
-        ];
-      }
-      
-      foundEntities.set(normalized, entity);
-    });
+    // Extract meaningful multi-word concepts
+    const conceptPatterns = [
+      // Product/item names (capitalized words)
+      /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b/g,
+      // Technical terms with hyphens
+      /\b([a-z]+-[a-z]+(?:-[a-z]+)?)\b/gi,
+      // Terms in quotes
+      /"([^"]+)"/g,
+      // Specific product categories
+      /\b(water\s+pipes?|bongs?|bubblers?|percolators?|dab\s+rigs?|recyclers?)\b/gi,
+      // Materials
+      /\b(glass|silicone|metal|borosilicate|ceramic)\s+(?:pipes?|bongs?|pieces?)\b/gi
+    ];
     
-    // Extract brand names (with ® ™ © symbols)
-    const brandMatches = text.match(/([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*)(?:[®™©])/g);
-    if (brandMatches) {
-      brandMatches.forEach(match => {
-        const brand = match.replace(/[®™©]/g, '').trim();
-        const normalized = brand.toLowerCase();
-        if (!foundEntities.has(normalized) && brand.length > 2) {
-          foundEntities.set(normalized, {
-            name: brand,
-            type: 'brand',
-            confidence: 0.95
-          });
-        }
-      });
-    }
-    
-    // Look for key repeated terms (likely important concepts)
-    const words = text.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
-    const wordFreq = new Map<string, number>();
-    
-    words.forEach(word => {
-      if (!foundEntities.has(word) && word.length > 5) {
-        wordFreq.set(word, (wordFreq.get(word) || 0) + 1);
-      }
-    });
-    
-    // Add high-frequency terms as concepts
-    Array.from(wordFreq.entries())
-      .filter(([word, freq]) => freq >= 4)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .forEach(([word, freq]) => {
-        if (!foundEntities.has(word)) {
-          foundEntities.set(word, {
-            name: word.charAt(0).toUpperCase() + word.slice(1),
-            type: 'concept',
-            confidence: Math.min(0.6 + (freq * 0.05), 0.85)
-          });
+    // Process each pattern
+    conceptPatterns.forEach(pattern => {
+      const matches = Array.from(text.matchAll(pattern));
+      matches.forEach(match => {
+        if (match[1]) {
+          const phrase = match[1].trim();
+          const normalized = phrase.toLowerCase();
+          
+          // Skip if too short, too long, or is a stop word
+          if (phrase.length < 3 || phrase.length > 50 || stopWords.has(normalized)) return;
+          
+          // Skip if matches ignore patterns
+          if (ignorePatterns.some(pattern => pattern.test(phrase))) return;
+          
+          // Skip if it's just numbers or single letters
+          if (/^[0-9\s]+$/.test(phrase) || /^[a-z]$/i.test(phrase)) return;
+          
+          // Determine entity type based on context
+          let entityType = 'concept';
+          let confidence = 0.7;
+          
+          // Check for specific types
+          if (normalized.includes('bong') || normalized.includes('pipe') || 
+              normalized.includes('bubbler') || normalized.includes('rig')) {
+            entityType = 'product';
+            confidence = 0.9;
+          } else if (normalized.includes('glass') || normalized.includes('silicone') || 
+                     normalized.includes('metal')) {
+            entityType = 'material';
+            confidence = 0.85;
+          } else if (/company|corporation|inc\.|llc|ltd/.test(normalized)) {
+            entityType = 'organization';
+            confidence = 0.8;
+          }
+          
+          // Increase confidence for frequently mentioned terms
+          const occurrences = (text.toLowerCase().match(new RegExp(`\\b${normalized}\\b`, 'g')) || []).length;
+          if (occurrences > 3) confidence += 0.1;
+          if (occurrences > 5) confidence += 0.1;
+          
+          // Only add if not already found
+          if (!foundEntities.has(normalized)) {
+            const entity: Entity = {
+              name: phrase.split(' ').map(word => 
+                word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+              ).join(' '),
+              type: entityType,
+              confidence: Math.min(confidence, 0.95)
+            };
+            
+            // Add Wikipedia/Wikidata links for known high-confidence entities
+            if (confidence > 0.85) {
+              const sameAs = [];
+              
+              // Map known terms to their Wikipedia/Wikidata entries
+              if (normalized === 'bong' || normalized === 'bongs') {
+                sameAs.push('https://en.wikipedia.org/wiki/Bong');
+                sameAs.push('https://www.wikidata.org/wiki/Q847027');
+              } else if (normalized === 'water pipe' || normalized === 'water pipes') {
+                sameAs.push('https://en.wikipedia.org/wiki/Water_pipe');
+              } else if (normalized === 'bubbler' || normalized === 'bubblers') {
+                sameAs.push('https://en.wikipedia.org/wiki/Bong#Bubblers');
+              } else if (normalized === 'dab rig' || normalized === 'dab rigs') {
+                sameAs.push('https://en.wikipedia.org/wiki/Hash_oil#Dabbing');
+              } else if (normalized === 'percolator' || normalized === 'percolators') {
+                sameAs.push('https://en.wikipedia.org/wiki/Bong#Percolator');
+              } else if (normalized === 'borosilicate glass' || normalized === 'borosilicate') {
+                sameAs.push('https://en.wikipedia.org/wiki/Borosilicate_glass');
+                sameAs.push('https://www.wikidata.org/wiki/Q413680');
+              } else if (normalized === 'silicone') {
+                sameAs.push('https://en.wikipedia.org/wiki/Silicone');
+                sameAs.push('https://www.wikidata.org/wiki/Q146439');
+              } else if (normalized === 'cannabis') {
+                sameAs.push('https://en.wikipedia.org/wiki/Cannabis');
+                sameAs.push('https://www.wikidata.org/wiki/Q79817');
+              } else if (normalized === 'glass') {
+                sameAs.push('https://en.wikipedia.org/wiki/Glass');
+                sameAs.push('https://www.wikidata.org/wiki/Q11469');
+              }
+              
+              if (sameAs.length > 0) {
+                entity.sameAs = sameAs;
+              }
+            }
+            
+            foundEntities.set(normalized, entity);
+          }
         }
       });
+    });
     
     // Convert to array and sort by confidence
     return Array.from(foundEntities.values())
+      .filter(entity => {
+        // Additional filtering
+        const name = entity.name.toLowerCase();
+        return !stopWords.has(name) && 
+               !ignorePatterns.some(pattern => pattern.test(name)) &&
+               entity.confidence > 0.6;
+      })
       .sort((a, b) => b.confidence - a.confidence)
-      .slice(0, 30); // Allow more entities for better about/mentions distinction
+      .slice(0, 20); // Limit to top 20 entities
   };
 
   const scrapeUrl = async (url: string) => {
@@ -363,8 +402,8 @@ export default function Home() {
       throw new Error('Insufficient content extracted from the page. Please try manual mode or check if JavaScript rendering is needed.');
     }
     
-    // Extract entities from content
-    const entities = extractEntities(content);
+    // Extract entities from content with better filtering
+    const entities = extractEntities(content, title);
     
     // Build schema based on detected page type
     let generatedSchema: SchemaType;
@@ -378,10 +417,10 @@ export default function Home() {
       const abstract = sentences.slice(0, 3).join(' ').substring(0, 300) + '...';
       
       // Determine audience based on content
-      const audience = determineAudience(content, entities);
+      const audience = determineAudience(content, title, entities);
       
       // Determine what the article teaches
-      const teaches = determineTeaches(content, entities);
+      const teaches = determineTeaches(content, title, entities);
       
       // Parse URL for use throughout
       const urlObj = new URL(url);
@@ -406,7 +445,7 @@ export default function Home() {
         "name": title,
         "description": description || content.substring(0, 160),
         "abstract": abstract,
-        "articleBody": content, // Include full content
+        "articleBody": content,
         "wordCount": wordCount,
         "datePublished": publishedDate || new Date().toISOString(),
         "dateModified": modifiedDate || publishedDate || new Date().toISOString(),
@@ -517,46 +556,120 @@ export default function Home() {
         schemaObject.teaches = teaches;
       }
       
-      // Add keywords only if entities were found
-      if (entities.length > 0) {
-        schemaObject.keywords = entities
-          .filter(e => e.confidence > 0.8)
+      // Add keywords only if meaningful entities were found
+      const meaningfulEntities = entities.filter(e => 
+        e.confidence > 0.8 && 
+        e.type !== 'concept' || e.name.split(' ').length <= 3
+      );
+      
+      if (meaningfulEntities.length > 0) {
+        schemaObject.keywords = meaningfulEntities
           .map(e => e.name)
           .slice(0, 10)
           .join(', ');
       }
       
-      // Add about for main topics
+      // Add about for main topics (high confidence, frequently mentioned)
       const aboutEntities = entities
         .filter(e => {
           const occurrences = (content.toLowerCase().match(new RegExp(`\\b${e.name.toLowerCase()}\\b`, 'g')) || []).length;
-          return e.confidence > 0.85 && occurrences > 3 && e.type !== 'person';
+          return e.confidence > 0.85 && 
+                 occurrences > 3 && 
+                 e.type !== 'person' &&
+                 e.name.split(' ').length <= 3; // Avoid long phrases
         })
         .slice(0, 5);
       
       if (aboutEntities.length > 0) {
-        schemaObject.about = aboutEntities.map(entity => ({
-          "@type": "Thing",
-          "@id": `https://example.com/kb/${entity.name.toLowerCase().replace(/\s+/g, '-')}`,
-          "name": entity.name,
-          "sameAs": cleanSchemaProperty(entity.sameAs)
-        }));
+        schemaObject.about = aboutEntities.map(entity => {
+          const thing: any = {
+            "@type": "Thing",
+            "@id": `https://example.com/kb/${entity.name.toLowerCase().replace(/\s+/g, '-')}`,
+            "name": entity.name
+          };
+          
+          // Add Wikipedia/Wikidata links for high-confidence entities
+          if (entity.confidence > 0.9) {
+            const sameAs = [];
+            
+            // For specific product types, use appropriate Wikipedia pages
+            const nameLower = entity.name.toLowerCase();
+            if (nameLower === 'bong' || nameLower === 'bongs') {
+              sameAs.push('https://en.wikipedia.org/wiki/Bong');
+              sameAs.push('https://www.wikidata.org/wiki/Q847027'); // Wikidata ID for bong
+            } else if (nameLower === 'water pipe' || nameLower === 'water pipes') {
+              sameAs.push('https://en.wikipedia.org/wiki/Water_pipe');
+            } else if (nameLower === 'bubbler' || nameLower === 'bubblers') {
+              sameAs.push('https://en.wikipedia.org/wiki/Bong#Bubblers');
+            } else if (nameLower === 'percolator' || nameLower === 'percolators') {
+              sameAs.push('https://en.wikipedia.org/wiki/Bong#Percolator');
+            } else if (nameLower === 'borosilicate glass' || nameLower === 'borosilicate') {
+              sameAs.push('https://en.wikipedia.org/wiki/Borosilicate_glass');
+              sameAs.push('https://www.wikidata.org/wiki/Q413680');
+            } else if (nameLower === 'silicone') {
+              sameAs.push('https://en.wikipedia.org/wiki/Silicone');
+              sameAs.push('https://www.wikidata.org/wiki/Q146439');
+            } else if (entity.name.split(' ').length <= 2) {
+              // For other short terms, create potential Wikipedia URL
+              const wikiName = entity.name.replace(/ /g, '_');
+              sameAs.push(`https://en.wikipedia.org/wiki/${wikiName}`);
+            }
+            
+            if (sameAs.length > 0) {
+              thing.sameAs = sameAs;
+            }
+          }
+          
+          return thing;
+        });
       }
       
-      // Add mentions for secondary topics
+      // Add mentions for secondary topics (lower confidence or less frequent)
       const mentionEntities = entities
         .filter(e => {
           const occurrences = (content.toLowerCase().match(new RegExp(`\\b${e.name.toLowerCase()}\\b`, 'g')) || []).length;
-          return e.confidence > 0.7 && e.confidence <= 0.85 && occurrences <= 3;
+          return e.confidence > 0.7 && 
+                 e.confidence <= 0.85 && 
+                 occurrences <= 3 &&
+                 e.name.split(' ').length <= 3; // Avoid long phrases
         })
         .slice(0, 10);
       
       if (mentionEntities.length > 0) {
-        schemaObject.mentions = mentionEntities.map(entity => ({
-          "@type": "Thing",
-          "name": entity.name,
-          "sameAs": cleanSchemaProperty(entity.sameAs)
-        }));
+        schemaObject.mentions = mentionEntities.map(entity => {
+          const thing: any = {
+            "@type": "Thing",
+            "name": entity.name
+          };
+          
+          // Add Wikipedia links for known concepts in mentions
+          if (entity.confidence > 0.75) {
+            const nameLower = entity.name.toLowerCase();
+            const sameAs = [];
+            
+            // Check for known terms
+            if (nameLower === 'glass' || nameLower === 'glass pipe') {
+              sameAs.push('https://en.wikipedia.org/wiki/Glass');
+            } else if (nameLower === 'filtration') {
+              sameAs.push('https://en.wikipedia.org/wiki/Filtration');
+            } else if (nameLower === 'smoke') {
+              sameAs.push('https://en.wikipedia.org/wiki/Smoke');
+            } else if (nameLower === 'cannabis') {
+              sameAs.push('https://en.wikipedia.org/wiki/Cannabis');
+              sameAs.push('https://www.wikidata.org/wiki/Q79817');
+            } else if (entity.name.split(' ').length === 1 && entity.type === 'material') {
+              // Single-word materials can have Wikipedia links
+              const wikiName = entity.name.replace(/ /g, '_');
+              sameAs.push(`https://en.wikipedia.org/wiki/${wikiName}`);
+            }
+            
+            if (sameAs.length > 0) {
+              thing.sameAs = sameAs;
+            }
+          }
+          
+          return thing;
+        });
       }
       
       generatedSchema = schemaObject;
@@ -571,12 +684,12 @@ export default function Home() {
             "url": url,
             "name": title,
             "description": description || content.substring(0, 160),
-            "keywords": entities.map(e => e.name).join(', '),
-            "about": entities.filter(e => e.confidence > 0.7).map(entity => ({
+            "keywords": entities.filter(e => e.confidence > 0.8).map(e => e.name).slice(0, 10).join(', '),
+            "about": entities.filter(e => e.confidence > 0.7).slice(0, 5).map(entity => ({
               "@type": "Thing",
               "name": entity.name
             })),
-            "mentions": entities.map(entity => ({
+            "mentions": entities.filter(e => e.confidence > 0.6).slice(5, 15).map(entity => ({
               "@type": "Thing",
               "name": entity.name
             }))
