@@ -127,7 +127,7 @@ export default function Home() {
     }
     
     // Tech/developer content
-    if (contentLower.includes('developer') || contentLower.includes('programming') || 
+    if (contentLower.includes('developer') || contentLower.includes('programmer') || 
         contentLower.includes('coding') || contentLower.includes('software')) {
       return {
         "@type": "Audience",
@@ -384,17 +384,6 @@ export default function Home() {
     }
   };
 
-  // Import the enhanced generator at the top of the component
-  const generateSchemaForUrl = async (urlData: any) => {
-  // Import the enhanced generator inside the async function
-  const { enhancedSchemaGenerator } = await import('@/lib/schema/enhanced-generator');
-  const { nlpEngine } = await import('@/lib/intelligence/nlp-engine');
-  
-  const {
-    url, title, description, content, pageType, existingSchemas,
-    organizationName: extractedOrg, authorName: extractedAuthor,
-    editorName, reviewerName, contributors,
-
   const generateSchemaForUrl = async (urlData: any) => {
     const { 
       url, title, description, content, pageType, existingSchemas, 
@@ -413,7 +402,55 @@ export default function Home() {
       throw new Error('Insufficient content extracted from the page. Please try manual mode or check if JavaScript rendering is needed.');
     }
     
-    // Extract entities from content with better filtering
+    try {
+      // Try to use enhanced intelligence layer
+      const { enhancedSchemaGenerator } = await import('@/lib/schema/enhanced-generator');
+      const { nlpEngine } = await import('@/lib/intelligence/nlp-engine');
+      
+      // Generate schema using enhanced generator
+      const schema = await enhancedSchemaGenerator.generateSchema({
+        url,
+        title,
+        description,
+        content,
+        organizationName: finalOrgName,
+        authorName: finalAuthorName,
+        featuredImage,
+        publishedDate,
+        modifiedDate
+      });
+      
+      // Extract entities for display
+      const analysis = await nlpEngine.analyzeContent(content, title, url);
+      const entities = analysis.entities.map((e: any) => ({
+        name: e.name,
+        type: e.type,
+        confidence: e.confidence,
+        sameAs: e.sameAs
+      }));
+      
+      // Clean up undefined values
+      const cleanSchema = JSON.parse(JSON.stringify(schema, (key, value) => {
+        return cleanSchemaProperty(value);
+      }));
+      
+      return { schema: cleanSchema, entities };
+      
+    } catch (error) {
+      console.error('Enhanced schema generation not available, using fallback:', error);
+      // Fallback to existing generation if enhanced is not available
+      return generateFallbackSchema(urlData, finalOrgName, finalAuthorName);
+    }
+  };
+
+  const generateFallbackSchema = (urlData: any, finalOrgName: string, finalAuthorName: string) => {
+    const { 
+      url, title, description, content, pageType, existingSchemas,
+      editorName, reviewerName, contributors,
+      publishedDate, modifiedDate, logoUrl, enrichedAuthor, featuredImage, language 
+    } = urlData;
+    
+    // Extract entities using existing method
     const entities = extractEntities(content, title);
     
     // Build schema based on detected page type
@@ -570,7 +607,7 @@ export default function Home() {
       // Add keywords only if meaningful entities were found
       const meaningfulEntities = entities.filter(e => 
         e.confidence > 0.8 && 
-        e.type !== 'concept' || e.name.split(' ').length <= 3
+        (e.type !== 'concept' || e.name.split(' ').length <= 3)
       );
       
       if (meaningfulEntities.length > 0) {
@@ -753,6 +790,30 @@ export default function Home() {
       
       // DO NOT auto-fill organization and author - let user decide
       // Only show what was detected without filling the fields
+      
+      // Attempt to enrich author data for E-E-A-T
+      if (scrapedData.authorName && !authorName) {
+        try {
+          const enrichResponse = await fetch('/api/enrich-author', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              authorName: scrapedData.authorName,
+              siteUrl: new URL(singleUrl).origin
+            })
+          });
+          
+          if (enrichResponse.ok) {
+            const enrichData = await enrichResponse.json();
+            if (enrichData.enriched) {
+              // Store enriched author data for use in schema generation
+              scrapedData.enrichedAuthor = enrichData.authorData;
+            }
+          }
+        } catch (e) {
+          console.log('Author enrichment failed, using basic author data');
+        }
+      }
       
       // Generate schema
       const { schema, entities } = await generateSchemaForUrl(scrapedData);
