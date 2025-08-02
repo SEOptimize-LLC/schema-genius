@@ -25,6 +25,7 @@ interface Entity {
   name: string;
   type: string;
   confidence: number;
+  sameAs?: string[];
 }
 
 interface ProcessedURL {
@@ -54,6 +55,84 @@ export default function Home() {
   });
 
   // Improved entity extraction
+  // Helper function to determine audience - universal approach
+  const determineAudience = (content: string, entities: Entity[]): any => {
+    const contentLower = content.toLowerCase();
+    
+    // Check for audience indicators
+    if (contentLower.includes('parent') || contentLower.includes('child') || contentLower.includes('kids')) {
+      return {
+        "@type": "ParentAudience",
+        "audienceType": "parents"
+      };
+    } else if (contentLower.includes('patient') || contentLower.includes('medical') || contentLower.includes('health')) {
+      return {
+        "@type": "PeopleAudience", 
+        "audienceType": "patients"
+      };
+    } else if (contentLower.includes('business') || contentLower.includes('professional') || contentLower.includes('enterprise')) {
+      return {
+        "@type": "BusinessAudience",
+        "audienceType": "business professionals"
+      };
+    } else if (contentLower.includes('student') || contentLower.includes('education') || contentLower.includes('learning')) {
+      return {
+        "@type": "EducationalAudience",
+        "audienceType": "students"
+      };
+    } else if (contentLower.includes('developer') || contentLower.includes('programmer') || contentLower.includes('coding')) {
+      return {
+        "@type": "Audience",
+        "audienceType": "developers"
+      };
+    } else if (contentLower.includes('researcher') || contentLower.includes('academic') || contentLower.includes('scientific')) {
+      return {
+        "@type": "Researcher",
+        "audienceType": "researchers"
+      };
+    }
+    
+    // Default to general audience
+    return {
+      "@type": "Audience",
+      "audienceType": "general public"
+    };
+  };
+  
+  // Helper function to determine what the article teaches
+  const determineTeaches = (content: string, entities: Entity[]): any[] => {
+    const teaches = [];
+    const contentLower = content.toLowerCase();
+    
+    // Extract learning outcomes based on content patterns
+    if (contentLower.includes('how to') || contentLower.includes('guide')) {
+      teaches.push({
+        "@type": "DefinedTerm",
+        "name": "Practical Application",
+        "description": "How to apply concepts in real-world scenarios"
+      });
+    }
+    
+    if (contentLower.includes('benefit') || contentLower.includes('advantage')) {
+      teaches.push({
+        "@type": "DefinedTerm", 
+        "name": "Benefits Analysis",
+        "description": "Understanding advantages and benefits"
+      });
+    }
+    
+    // Add main topic entities as learning outcomes
+    entities.filter(e => e.confidence > 0.9).slice(0, 3).forEach(entity => {
+      teaches.push({
+        "@type": "DefinedTerm",
+        "name": entity.name,
+        "description": `Understanding of ${entity.name.toLowerCase()}`
+      });
+    });
+    
+    return teaches;
+  };
+
   const extractEntities = (text: string): Entity[] => {
     const entities: Entity[] = [];
     const foundEntities = new Set<string>();
@@ -141,7 +220,12 @@ export default function Home() {
   };
 
   const generateSchemaForUrl = async (urlData: any) => {
-    const { url, title, description, content, pageType, existingSchemas, organizationName: extractedOrg, authorName: extractedAuthor, publishedDate, modifiedDate, logoUrl, enrichedAuthor } = urlData;
+    const { 
+      url, title, description, content, pageType, existingSchemas, 
+      organizationName: extractedOrg, authorName: extractedAuthor,
+      editorName, reviewerName, contributors,
+      publishedDate, modifiedDate, logoUrl, enrichedAuthor, featuredImage, language 
+    } = urlData;
     
     // Use extracted values if user hasn't provided their own
     const finalOrgName = organizationName || extractedOrg;
@@ -180,6 +264,26 @@ export default function Home() {
           "@type": "Person",
           "name": finalAuthorName
         }) : undefined,
+        // Add editor if present
+        "editor": editorName ? {
+          "@type": "Person",
+          "@id": `${urlObj.origin}/team/${editorName.toLowerCase().replace(/\s+/g, '-')}#Person`,
+          "name": editorName,
+          "url": `${urlObj.origin}/team/${editorName.toLowerCase().replace(/\s+/g, '-')}`
+        } : undefined,
+        // Add reviewer if present (especially important for medical content)
+        "reviewedBy": reviewerName ? {
+          "@type": "Person", 
+          "@id": `${urlObj.origin}/team/${reviewerName.toLowerCase().replace(/\s+/g, '-')}#Person`,
+          "name": reviewerName,
+          "url": `${urlObj.origin}/team/${reviewerName.toLowerCase().replace(/\s+/g, '-')}`,
+          "jobTitle": reviewerName.includes('Dr.') ? "Medical Professional" : "Expert Reviewer"
+        } : undefined,
+        // Add contributors if present
+        "contributor": contributors?.length > 0 ? contributors.map(name => ({
+          "@type": "Person",
+          "name": name
+        })) : undefined,
         "publisher": finalOrgName ? {
           "@type": "Organization",
           "name": finalOrgName,
