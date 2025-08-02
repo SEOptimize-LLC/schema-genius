@@ -100,7 +100,7 @@ export default function Home() {
   
   // Helper function to determine what the article teaches
   const determineTeaches = (content: string, entities: Entity[]): any[] => {
-    const teaches = [];
+    const teaches: any[] = []; // Fixed: Explicitly typed as any[]
     const contentLower = content.toLowerCase();
     
     // Look for specific learning patterns in the content
