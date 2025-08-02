@@ -261,6 +261,8 @@ export default function Home() {
       if (scrapedData.authorName && !authorName) {
         setAuthorName(scrapedData.authorName);
         
+        // Temporarily disable author enrichment for debugging
+        /*
         // Attempt to enrich author data for E-E-A-T
         try {
           const enrichResponse = await fetch('/api/enrich-author', {
@@ -282,6 +284,7 @@ export default function Home() {
         } catch (e) {
           console.log('Author enrichment failed, using basic author data');
         }
+        */
       }
       
       // Generate schema
