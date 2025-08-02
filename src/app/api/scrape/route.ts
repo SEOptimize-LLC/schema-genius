@@ -89,7 +89,6 @@ export async function POST(request: Request) {
     // Validate extraction results
     if (!result.content || result.content.length < 100) {
       console.warn('Content extraction resulted in minimal content');
-      result.metadata.warning = 'Minimal content extracted. Manual input may be required.';
     }
     
     return NextResponse.json(result);
@@ -560,7 +559,8 @@ function extractDataFromHTML(html: string, url: string) {
       hasExistingSchema: existingSchemas.length > 0,
       schemaCount: existingSchemas.length,
       contentLength: fullTextContent.length,
-      extractionMethod: extractionMethod
+      extractionMethod: extractionMethod,
+      warning: fullTextContent.length < 100 ? 'Minimal content extracted. Manual input may be required.' : undefined
     }
   };
 }
