@@ -306,7 +306,7 @@ export default function Home() {
           "jobTitle": reviewerName.includes('Dr.') ? "Medical Professional" : "Expert Reviewer"
         } : undefined,
         // Add contributors if present
-        "contributor": contributors?.length > 0 ? contributors.map(name => ({
+        "contributor": contributors?.length > 0 ? contributors.map((name: string) => ({
           "@type": "Person",
           "name": name
         })) : undefined,
