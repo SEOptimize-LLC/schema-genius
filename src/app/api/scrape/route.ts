@@ -2,6 +2,57 @@
 // app/api/scrape/route.ts
 import { NextResponse } from 'next/server';
 
+// Retry configuration
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 1000; // 1 second
+
+async function scrapeWithRetry(url: string, apiKey: string, attempt = 1): Promise<string> {
+  try {
+    // Try with JavaScript rendering first
+    const renderJs = attempt <= 2 ? 'true' : 'false'; // Fall back to non-JS on last attempt
+    
+    const scrapingBeeUrl = new URL('https://app.scrapingbee.com/api/v1/');
+    scrapingBeeUrl.searchParams.append('api_key', apiKey);
+    scrapingBeeUrl.searchParams.append('url', url);
+    scrapingBeeUrl.searchParams.append('render_js', renderJs);
+    scrapingBeeUrl.searchParams.append('block_ads', 'true');
+    scrapingBeeUrl.searchParams.append('block_resources', 'false');
+    
+    // Add wait time for JavaScript rendering
+    if (renderJs === 'true') {
+      scrapingBeeUrl.searchParams.append('wait', '3000'); // Wait 3 seconds for JS
+    }
+    
+    console.log(`Scraping attempt ${attempt} with JS rendering: ${renderJs}`);
+    
+    const response = await fetch(scrapingBeeUrl.toString());
+    
+    if (!response.ok) {
+      throw new Error(`ScrapingBee error: ${response.status} ${response.statusText}`);
+    }
+    
+    const html = await response.text();
+    
+    // Validate that we got meaningful content
+    if (html.length < 1000) {
+      throw new Error('Response too short, likely an error page');
+    }
+    
+    return html;
+    
+  } catch (error) {
+    console.error(`Scraping attempt ${attempt} failed:`, error);
+    
+    if (attempt < MAX_RETRIES) {
+      console.log(`Retrying in ${RETRY_DELAY}ms...`);
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+      return scrapeWithRetry(url, apiKey, attempt + 1);
+    }
+    
+    throw error;
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const { url } = await request.json();
@@ -10,53 +61,47 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'URL is required' }, { status: 400 });
     }
 
+    // Validate URL format
+    try {
+      new URL(url);
+    } catch (e) {
+      return NextResponse.json({ error: 'Invalid URL format' }, { status: 400 });
+    }
+
     // Use ScrapingBee API
     const SCRAPINGBEE_API_KEY = process.env.SCRAPINGBEE_API_KEY;
     
     console.log('ScrapingBee API Key exists:', !!SCRAPINGBEE_API_KEY);
-    console.log('API Key length:', SCRAPINGBEE_API_KEY?.length);
     
     if (!SCRAPINGBEE_API_KEY) {
       return NextResponse.json({ 
         error: 'ScrapingBee API key not configured',
-        message: 'Please add SCRAPINGBEE_API_KEY to your environment variables',
-        debug: {
-          keyExists: !!process.env.SCRAPINGBEE_API_KEY,
-          envKeys: Object.keys(process.env).filter(k => k.includes('SCRAPING'))
-        }
+        message: 'Please add SCRAPINGBEE_API_KEY to your environment variables'
       }, { status: 500 });
     }
     
-    // ScrapingBee API endpoint
-    const scrapingBeeUrl = new URL('https://app.scrapingbee.com/api/v1/');
-    scrapingBeeUrl.searchParams.append('api_key', SCRAPINGBEE_API_KEY);
-    scrapingBeeUrl.searchParams.append('url', url);
-    scrapingBeeUrl.searchParams.append('render_js', 'false'); // Set to true if you need JavaScript rendering
-    scrapingBeeUrl.searchParams.append('block_ads', 'true');
-    scrapingBeeUrl.searchParams.append('block_resources', 'false');
-    
-    const response = await fetch(scrapingBeeUrl.toString());
-    
-    if (!response.ok) {
-      console.error('ScrapingBee error:', response.status, response.statusText);
-      return NextResponse.json({ 
-        error: 'Failed to scrape URL',
-        status: response.status,
-        message: response.statusText
-      }, { status: 500 });
-    }
-
-    const html = await response.text();
+    // Scrape with retry logic
+    const html = await scrapeWithRetry(url, SCRAPINGBEE_API_KEY);
     
     // Process the HTML
     const result = extractDataFromHTML(html, url);
+    
+    // Validate extraction results
+    if (!result.content || result.content.length < 100) {
+      console.warn('Content extraction resulted in minimal content');
+      result.metadata.warning = 'Minimal content extracted. Manual input may be required.';
+    }
     
     return NextResponse.json(result);
 
   } catch (error) {
     console.error('Scraping error:', error);
     return NextResponse.json(
-      { error: 'Failed to scrape URL', details: error instanceof Error ? error.message : 'Unknown error' }, 
+      { 
+        error: 'Failed to scrape URL', 
+        details: error instanceof Error ? error.message : 'Unknown error',
+        suggestion: 'Try using manual mode if the website blocks automated scraping'
+      }, 
       { status: 500 }
     );
   }
@@ -92,7 +137,7 @@ function extractDataFromHTML(html: string, url: string) {
         const parsed = JSON.parse(jsonContent);
         existingSchemas.push(parsed);
       } catch (e) {
-        // Invalid JSON, skip
+        console.warn('Failed to parse JSON-LD:', e);
       }
     }
   }
@@ -261,9 +306,11 @@ function extractDataFromHTML(html: string, url: string) {
   
   let maxContentLength = 0;
   let bestContent = '';
+  let extractionMethod = 'None';
   
   // Try each pattern and keep the longest result
-  for (const pattern of contentPatterns) {
+  for (let i = 0; i < contentPatterns.length; i++) {
+    const pattern = contentPatterns[i];
     const matches = cleanHtml.match(new RegExp(pattern, 'gi'));
     if (matches) {
       for (const match of matches) {
@@ -278,6 +325,7 @@ function extractDataFromHTML(html: string, url: string) {
         if (textOnly.length > maxContentLength) {
           maxContentLength = textOnly.length;
           bestContent = match;
+          extractionMethod = `Pattern ${i + 1}`;
         }
       }
     }
@@ -287,6 +335,7 @@ function extractDataFromHTML(html: string, url: string) {
   if (bestContent && maxContentLength > 500) {
     textContent = bestContent;
   } else {
+    extractionMethod = 'Fallback';
     // Enhanced fallback: look for the body content more carefully
     const bodyMatch = cleanHtml.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
     if (bodyMatch) {
@@ -310,6 +359,7 @@ function extractDataFromHTML(html: string, url: string) {
           const containerText = match[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
           if (containerText.length > 500) {
             textContent = match[1];
+            extractionMethod = 'Fallback Container';
             break;
           }
         }
@@ -318,9 +368,11 @@ function extractDataFromHTML(html: string, url: string) {
       // If still no content, use cleaned body
       if (!textContent) {
         textContent = bodyContent;
+        extractionMethod = 'Fallback Body';
       }
     } else {
       textContent = cleanHtml;
+      extractionMethod = 'Fallback Full HTML';
     }
   }
   
@@ -481,7 +533,7 @@ function extractDataFromHTML(html: string, url: string) {
   }
   
   console.log(`Extracted content length: ${fullTextContent.length} characters`);
-  console.log(`Content extraction method: ${bestContent ? 'Pattern match' : 'Fallback'}`);
+  console.log(`Content extraction method: ${extractionMethod}`);
   
   return {
     url,
@@ -508,7 +560,7 @@ function extractDataFromHTML(html: string, url: string) {
       hasExistingSchema: existingSchemas.length > 0,
       schemaCount: existingSchemas.length,
       contentLength: fullTextContent.length,
-      extractionMethod: bestContent ? 'Pattern match' : 'Fallback'
+      extractionMethod: extractionMethod
     }
   };
 }

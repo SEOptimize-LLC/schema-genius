@@ -3,7 +3,7 @@
 // app/page.tsx
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 interface SchemaType {
   "@context": string;
@@ -54,6 +54,37 @@ export default function Home() {
     content: ''
   });
 
+  // Clear cache when switching between URLs
+  useEffect(() => {
+    // Clear scraped content when URL changes
+    setScrapedContent(null);
+    setCurrentSchema(null);
+    setManualMode(false);
+    setManualContent({ title: '', description: '', content: '' });
+  }, [singleUrl]);
+
+  // Helper function to clean and filter schema properties
+  const cleanSchemaProperty = (value: any): any => {
+    if (value === null || value === undefined) return undefined;
+    if (typeof value === 'string' && value.trim() === '') return undefined;
+    if (Array.isArray(value) && value.length === 0) return undefined;
+    if (typeof value === 'object' && !Array.isArray(value)) {
+      const cleaned: any = {};
+      let hasValidProperty = false;
+      
+      for (const key in value) {
+        const cleanedValue = cleanSchemaProperty(value[key]);
+        if (cleanedValue !== undefined) {
+          cleaned[key] = cleanedValue;
+          hasValidProperty = true;
+        }
+      }
+      
+      return hasValidProperty ? cleaned : undefined;
+    }
+    return value;
+  };
+
   // Helper function to determine audience - universal approach
   const determineAudience = (content: string, entities: Entity[]): any => {
     const contentLower = content.toLowerCase();
@@ -100,7 +131,7 @@ export default function Home() {
   
   // Helper function to determine what the article teaches
   const determineTeaches = (content: string, entities: Entity[]): any[] => {
-    const teaches: any[] = []; // Fixed: Explicitly typed as any[]
+    const teaches: any[] = [];
     const contentLower = content.toLowerCase();
     
     // Look for specific learning patterns in the content
@@ -155,10 +186,16 @@ export default function Home() {
     return uniqueTeaches.slice(0, 5); // Limit to 5 most relevant
   };
 
-  // Universal entity extraction with Wikipedia/Wikidata support
+  // Enhanced entity extraction with better keyword detection
   const extractEntities = (text: string): Entity[] => {
     const entities: Entity[] = [];
     const foundEntities = new Map<string, Entity>();
+    
+    // Ensure we have sufficient text content
+    if (!text || text.length < 100) {
+      console.warn('Insufficient content for entity extraction');
+      return [];
+    }
     
     // Extract important multi-word concepts and phrases
     const importantPhrases = [
@@ -316,9 +353,15 @@ export default function Home() {
       publishedDate, modifiedDate, logoUrl, enrichedAuthor, featuredImage, language 
     } = urlData;
     
-    // Use extracted values if user hasn't provided their own
+    // Use user-provided values over extracted values
     const finalOrgName = organizationName || extractedOrg;
     const finalAuthorName = authorName || extractedAuthor;
+    
+    // Ensure we have content to work with
+    if (!content || content.length < 50) {
+      console.error('Insufficient content for schema generation');
+      throw new Error('Insufficient content extracted from the page. Please try manual mode or check if JavaScript rendering is needed.');
+    }
     
     // Extract entities from content
     const entities = extractEntities(content);
@@ -327,7 +370,7 @@ export default function Home() {
     let generatedSchema: SchemaType;
     
     if (pageType === 'article' || content.toLowerCase().includes('article') || content.toLowerCase().includes('blog')) {
-      // Calculate word count
+      // Calculate word count correctly
       const wordCount = content.split(/\s+/).filter((word: string) => word.length > 0).length;
       
       // Generate abstract (first 2-3 sentences or ~150 words)
@@ -353,7 +396,8 @@ export default function Home() {
         }
       }
       
-      generatedSchema = {
+      // Build the schema object
+      const schemaObject: any = {
         "@context": "https://schema.org",
         "@type": "BlogPosting",
         "@id": `${url}#BlogPosting`,
@@ -362,17 +406,22 @@ export default function Home() {
         "name": title,
         "description": description || content.substring(0, 160),
         "abstract": abstract,
-        "articleBody": content,
+        "articleBody": content, // Include full content
         "wordCount": wordCount,
-        "datePublished": urlData.publishedDate || new Date().toISOString(),
-        "dateModified": urlData.modifiedDate || urlData.publishedDate || new Date().toISOString(),
-        "author": finalAuthorName ? (enrichedAuthor ? {
+        "datePublished": publishedDate || new Date().toISOString(),
+        "dateModified": modifiedDate || publishedDate || new Date().toISOString(),
+        "inLanguage": language || "en-US"
+      };
+      
+      // Add author only if available
+      if (finalAuthorName) {
+        schemaObject.author = enrichedAuthor ? {
           "@type": "Person",
           "@id": `${urlObj.origin}/author/${finalAuthorName.toLowerCase().replace(/\s+/g, '-')}#Person`,
           "name": finalAuthorName,
           "url": `${urlObj.origin}/author/${finalAuthorName.toLowerCase().replace(/\s+/g, '-')}`,
-          "jobTitle": enrichedAuthor.jobTitle || undefined,
-          "description": enrichedAuthor.description || undefined,
+          "jobTitle": cleanSchemaProperty(enrichedAuthor.jobTitle),
+          "description": cleanSchemaProperty(enrichedAuthor.description),
           "image": enrichedAuthor.image ? {
             "@type": "ImageObject",
             "@id": enrichedAuthor.image,
@@ -385,88 +434,132 @@ export default function Home() {
             "@id": urlObj.origin,
             "name": enrichedAuthor.worksFor || finalOrgName
           } : undefined,
-          "alumniOf": enrichedAuthor.alumniOf || undefined
+          "alumniOf": cleanSchemaProperty(enrichedAuthor.alumniOf)
         } : {
           "@type": "Person",
           "name": finalAuthorName
-        }) : undefined,
-        // Add editor if present
-        "editor": editorName ? {
+        };
+      }
+      
+      // Add editor if present
+      if (editorName) {
+        schemaObject.editor = {
           "@type": "Person",
           "@id": `${urlObj.origin}/team/${editorName.toLowerCase().replace(/\s+/g, '-')}#Person`,
           "name": editorName,
           "url": `${urlObj.origin}/team/${editorName.toLowerCase().replace(/\s+/g, '-')}`
-        } : undefined,
-        // Add reviewer if present (especially important for medical content)
-        "reviewedBy": reviewerName ? {
-          "@type": "Person", 
+        };
+      }
+      
+      // Add reviewer if present
+      if (reviewerName) {
+        schemaObject.reviewedBy = {
+          "@type": "Person",
           "@id": `${urlObj.origin}/team/${reviewerName.toLowerCase().replace(/\s+/g, '-')}#Person`,
           "name": reviewerName,
           "url": `${urlObj.origin}/team/${reviewerName.toLowerCase().replace(/\s+/g, '-')}`,
           "jobTitle": reviewerName.includes('Dr.') ? "Medical Professional" : "Expert Reviewer"
-        } : undefined,
-        // Add contributors if present
-        "contributor": contributors?.length > 0 ? contributors.map((name: string) => ({
+        };
+      }
+      
+      // Add contributors if present
+      if (contributors?.length > 0) {
+        schemaObject.contributor = contributors.map((name: string) => ({
           "@type": "Person",
           "name": name
-        })) : undefined,
-        "publisher": finalOrgName ? {
+        }));
+      }
+      
+      // Add publisher if organization name is available
+      if (finalOrgName) {
+        schemaObject.publisher = {
           "@type": "Organization",
           "@id": urlObj.origin,
           "name": finalOrgName,
           "logo": {
             "@type": "ImageObject",
-            "@id": urlData.logoUrl || `${urlObj.origin}/assets/logo.png`,
-            "url": urlData.logoUrl || `${urlObj.origin}/assets/logo.png`,
+            "@id": logoUrl || `${urlObj.origin}/assets/logo.png`,
+            "url": logoUrl || `${urlObj.origin}/assets/logo.png`,
             "width": "600",
             "height": "60"
           }
-        } : undefined,
-        "image": urlData.featuredImage ? {
+        };
+      }
+      
+      // Add image if available
+      if (featuredImage) {
+        schemaObject.image = {
           "@type": "ImageObject",
-          "@id": urlData.featuredImage,
-          "url": urlData.featuredImage
-        } : undefined,
-        "inLanguage": urlData.language || "en-US",
-        "isPartOf": blogPath ? {
+          "@id": featuredImage,
+          "url": featuredImage
+        };
+      }
+      
+      // Add isPartOf if blog path is detected
+      if (blogPath && finalOrgName) {
+        schemaObject.isPartOf = {
           "@type": "Blog",
           "@id": `${urlObj.origin}/${blogPath}/`,
-          "name": `${finalOrgName || 'Company'} Blog`,
-          "publisher": finalOrgName ? {
+          "name": `${finalOrgName} Blog`,
+          "publisher": {
             "@type": "Organization",
             "@id": urlObj.origin,
             "name": finalOrgName
-          } : undefined
-        } : undefined,
-        "audience": audience,
-        "teaches": teaches.length > 0 ? teaches : undefined,
-        "keywords": entities.filter(e => e.confidence > 0.8).map(e => e.name).slice(0, 10).join(', '),
-        "about": entities
-          .filter(e => {
-            // "About" should be main topics with high confidence and high frequency
-            const occurrences = (content.toLowerCase().match(new RegExp(`\\b${e.name.toLowerCase()}\\b`, 'g')) || []).length;
-            return e.confidence > 0.85 && occurrences > 3 && e.type !== 'person';
-          })
-          .slice(0, 5)
-          .map(entity => ({
-            "@type": "Thing",
-            "@id": `https://example.com/kb/${entity.name.toLowerCase().replace(/\s+/g, '-')}`,
-            "name": entity.name,
-            "sameAs": entity.sameAs || undefined
-          })),
-        "mentions": entities
-          .filter(e => {
-            // "Mentions" should be secondary topics or briefly referenced items
-            const occurrences = (content.toLowerCase().match(new RegExp(`\\b${e.name.toLowerCase()}\\b`, 'g')) || []).length;
-            return e.confidence > 0.7 && e.confidence <= 0.85 && occurrences <= 3;
-          })
+          }
+        };
+      }
+      
+      // Add audience
+      schemaObject.audience = audience;
+      
+      // Add teaches only if relevant content found
+      if (teaches.length > 0) {
+        schemaObject.teaches = teaches;
+      }
+      
+      // Add keywords only if entities were found
+      if (entities.length > 0) {
+        schemaObject.keywords = entities
+          .filter(e => e.confidence > 0.8)
+          .map(e => e.name)
           .slice(0, 10)
-          .map(entity => ({
-            "@type": "Thing",
-            "name": entity.name,
-            "sameAs": entity.sameAs || undefined
-          }))
-      };
+          .join(', ');
+      }
+      
+      // Add about for main topics
+      const aboutEntities = entities
+        .filter(e => {
+          const occurrences = (content.toLowerCase().match(new RegExp(`\\b${e.name.toLowerCase()}\\b`, 'g')) || []).length;
+          return e.confidence > 0.85 && occurrences > 3 && e.type !== 'person';
+        })
+        .slice(0, 5);
+      
+      if (aboutEntities.length > 0) {
+        schemaObject.about = aboutEntities.map(entity => ({
+          "@type": "Thing",
+          "@id": `https://example.com/kb/${entity.name.toLowerCase().replace(/\s+/g, '-')}`,
+          "name": entity.name,
+          "sameAs": cleanSchemaProperty(entity.sameAs)
+        }));
+      }
+      
+      // Add mentions for secondary topics
+      const mentionEntities = entities
+        .filter(e => {
+          const occurrences = (content.toLowerCase().match(new RegExp(`\\b${e.name.toLowerCase()}\\b`, 'g')) || []).length;
+          return e.confidence > 0.7 && e.confidence <= 0.85 && occurrences <= 3;
+        })
+        .slice(0, 10);
+      
+      if (mentionEntities.length > 0) {
+        schemaObject.mentions = mentionEntities.map(entity => ({
+          "@type": "Thing",
+          "name": entity.name,
+          "sameAs": cleanSchemaProperty(entity.sameAs)
+        }));
+      }
+      
+      generatedSchema = schemaObject;
     } else {
       // Enhanced WebPage with @graph
       generatedSchema = {
@@ -502,8 +595,11 @@ export default function Home() {
       }
     }
     
-    // Clean up undefined values
-    const cleanSchema = JSON.parse(JSON.stringify(generatedSchema));
+    // Clean up undefined values and empty properties
+    const cleanSchema = JSON.parse(JSON.stringify(generatedSchema, (key, value) => {
+      const cleaned = cleanSchemaProperty(value);
+      return cleaned;
+    }));
     
     return { schema: cleanSchema, entities };
   };
@@ -512,12 +608,16 @@ export default function Home() {
     if (!singleUrl) return;
     
     setLoading(true);
+    // Clear previous data to prevent mixing
+    setCurrentSchema(null);
+    setProcessedUrls([]);
+    
     try {
       // Try to scrape the URL
       const scrapedData = await scrapeUrl(singleUrl);
       
       // Check if we need to use manual mode
-      if (scrapedData.error || scrapedData.useClientSide) {
+      if (scrapedData.error || scrapedData.useClientSide || !scrapedData.content || scrapedData.content.length < 100) {
         setManualMode(true);
         // Pre-fill URL in manual content
         setManualContent(prev => ({ ...prev, url: singleUrl }));
@@ -527,38 +627,8 @@ export default function Home() {
       
       setScrapedContent(scrapedData);
       
-      // Auto-fill organization and author if found
-      if (scrapedData.organizationName && !organizationName) {
-        setOrganizationName(scrapedData.organizationName);
-      }
-      if (scrapedData.authorName && !authorName) {
-        setAuthorName(scrapedData.authorName);
-        
-        // Temporarily disable author enrichment for debugging
-        /*
-        // Attempt to enrich author data for E-E-A-T
-        try {
-          const enrichResponse = await fetch('/api/enrich-author', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              authorName: scrapedData.authorName,
-              siteUrl: new URL(singleUrl).origin
-            })
-          });
-          
-          if (enrichResponse.ok) {
-            const enrichData = await enrichResponse.json();
-            if (enrichData.enriched) {
-              // Store enriched author data for use in schema generation
-              scrapedData.enrichedAuthor = enrichData.authorData;
-            }
-          }
-        } catch (e) {
-          console.log('Author enrichment failed, using basic author data');
-        }
-        */
-      }
+      // DO NOT auto-fill organization and author - let user decide
+      // Only show what was detected without filling the fields
       
       // Generate schema
       const { schema, entities } = await generateSchemaForUrl(scrapedData);
@@ -613,6 +683,7 @@ export default function Home() {
       setManualMode(false);
     } catch (error) {
       console.error('Error processing manual content:', error);
+      alert('Error generating schema. Please ensure you have provided sufficient content.');
     } finally {
       setLoading(false);
     }
@@ -634,6 +705,12 @@ export default function Home() {
       
       try {
         const scrapedData = await scrapeUrl(url);
+        
+        // Skip if insufficient content
+        if (!scrapedData.content || scrapedData.content.length < 100) {
+          throw new Error('Insufficient content extracted');
+        }
+        
         const { schema, entities } = await generateSchemaForUrl(scrapedData);
         
         setProcessedUrls(prev => prev.map((u, idx) => 
@@ -728,7 +805,7 @@ export default function Home() {
               {manualMode && (
                 <div className="p-4 bg-yellow-50 border border-yellow-200 rounded">
                   <p className="text-sm text-yellow-800 mb-3">
-                    ⚠️ Automatic scraping is blocked by this website. Please enter the content manually:
+                    ⚠️ Automatic scraping failed or returned insufficient content. Please enter the content manually:
                   </p>
                   <div className="space-y-3">
                     <div>
@@ -783,7 +860,7 @@ export default function Home() {
           <div className="p-4 bg-gray-50 rounded">
             <h3 className="font-semibold mb-3">Organization Settings</h3>
             <p className="text-sm text-gray-600 mb-3">
-              These fields will be auto-populated from the scraped content. You can override them if needed.
+              Enter your organization and author information. These will override any auto-detected values.
             </p>
             <div className="space-y-3">
               <div>
@@ -793,7 +870,7 @@ export default function Home() {
                   className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500"
                   value={organizationName}
                   onChange={(e) => setOrganizationName(e.target.value)}
-                  placeholder="Auto-detected from URL"
+                  placeholder="Enter your organization name"
                 />
               </div>
               <div>
@@ -803,7 +880,7 @@ export default function Home() {
                   className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500"
                   value={authorName}
                   onChange={(e) => setAuthorName(e.target.value)}
-                  placeholder="Auto-detected from content"
+                  placeholder="Enter author name"
                 />
               </div>
             </div>
@@ -844,7 +921,7 @@ export default function Home() {
                 {scrapedContent.authorName && (
                   <p><strong>Author Detected:</strong> {scrapedContent.authorName}</p>
                 )}
-                {scrapedContent.metadata.hasExistingSchema && (
+                {scrapedContent.metadata?.hasExistingSchema && (
                   <p className="text-yellow-600">⚠️ This page already has schema markup</p>
                 )}
               </div>
