@@ -187,7 +187,7 @@ function extractDataFromHTML(html: string, url: string) {
   let textContent = '';
   
   // Remove scripts, styles, and other non-content elements
-  let cleanHtml = html
+  const cleanHtml = html
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
     .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
