@@ -163,7 +163,7 @@ export default function Home() {
       };
       
       // Add Organization if provided
-      if (organizationName) {
+      if (organizationName && generatedSchema["@graph"]) {
         generatedSchema["@graph"].push({
           "@type": "Organization",
           "@id": `${url}#organization`,
