@@ -103,90 +103,152 @@ export default function Home() {
     const teaches = [];
     const contentLower = content.toLowerCase();
     
-    // Extract learning outcomes based on content patterns
-    if (contentLower.includes('how to') || contentLower.includes('guide')) {
-      teaches.push({
-        "@type": "DefinedTerm",
-        "name": "Practical Application",
-        "description": "How to apply concepts in real-world scenarios"
-      });
-    }
+    // Look for specific learning patterns in the content
+    const learningPatterns = [
+      /how to ([^.!?]+)/gi,
+      /learn(?:ing)? (?:about |to )?([^.!?]+)/gi,
+      /understand(?:ing)? ([^.!?]+)/gi,
+      /guide to ([^.!?]+)/gi,
+      /benefits of ([^.!?]+)/gi,
+      /why ([^.!?]+) (?:is|are) important/gi,
+      /choosing the (?:best |right )?([^.!?]+)/gi,
+      /(?:tips|advice) (?:for |on )?([^.!?]+)/gi
+    ];
     
-    if (contentLower.includes('benefit') || contentLower.includes('advantage')) {
-      teaches.push({
-        "@type": "DefinedTerm", 
-        "name": "Benefits Analysis",
-        "description": "Understanding advantages and benefits"
-      });
-    }
-    
-    // Add main topic entities as learning outcomes
-    entities.filter(e => e.confidence > 0.9).slice(0, 3).forEach(entity => {
-      teaches.push({
-        "@type": "DefinedTerm",
-        "name": entity.name,
-        "description": `Understanding of ${entity.name.toLowerCase()}`
+    learningPatterns.forEach(pattern => {
+      const matches = Array.from(contentLower.matchAll(pattern));
+      matches.forEach(match => {
+        if (match[1] && match[1].length < 100) {
+          teaches.push({
+            "@type": "DefinedTerm",
+            "name": match[1].trim().split(' ').map(w => 
+              w.charAt(0).toUpperCase() + w.slice(1)
+            ).join(' '),
+            "description": `Understanding ${match[1].trim()}`
+          });
+        }
       });
     });
     
-    return teaches;
-  };
-
-  // Universal entity extraction - works for any industry
-  const extractEntities = (text: string): Entity[] => {
-    const entities: Entity[] = [];
-    const foundEntities = new Set<string>();
+    // Add main topic entities as learning outcomes (only the most relevant ones)
+    const mainTopics = entities
+      .filter(e => e.confidence > 0.85 && e.type !== 'brand' && e.type !== 'person')
+      .slice(0, 3);
     
-    // Extract named entities (proper nouns, organizations, concepts)
-    // This is simplified - in production you'd use NLP libraries
-    
-    // 1. Extract capitalized phrases (potential proper nouns/entities)
-    const capitalizedPhrases = text.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b/g) || [];
-    
-    capitalizedPhrases.forEach(phrase => {
-      // Filter out common words that are capitalized at sentence start
-      const commonWords = ['The', 'This', 'That', 'These', 'Those', 'What', 'When', 'Where', 'Who', 'Why', 'How'];
-      
-      if (!commonWords.includes(phrase) && 
-          !foundEntities.has(phrase.toLowerCase()) && 
-          phrase.length > 2) {
-        
-        foundEntities.add(phrase.toLowerCase());
-        
-        // Determine entity type based on context
-        let entityType = 'concept';
-        const context = text.substring(
-          Math.max(0, text.indexOf(phrase) - 50),
-          Math.min(text.length, text.indexOf(phrase) + phrase.length + 50)
-        ).toLowerCase();
-        
-        if (context.includes('company') || context.includes('corporation') || context.includes('inc') || context.includes('llc')) {
-          entityType = 'organization';
-        } else if (context.includes('product') || context.includes('service') || context.includes('solution')) {
-          entityType = 'product';
-        } else if (context.includes('located') || context.includes('city') || context.includes('country')) {
-          entityType = 'place';
-        } else if (phrase.split(' ').length === 2 && !phrase.includes('&')) {
-          // Might be a person's name
-          entityType = 'person';
-        }
-        
-        entities.push({
-          name: phrase,
-          type: entityType,
-          confidence: 0.7
+    mainTopics.forEach(entity => {
+      // Check if this entity is actually discussed in detail
+      const entityMentions = (content.toLowerCase().match(new RegExp(`\\b${entity.name.toLowerCase()}\\b`, 'g')) || []).length;
+      if (entityMentions > 2) {
+        teaches.push({
+          "@type": "DefinedTerm",
+          "name": entity.name,
+          "description": `Comprehensive understanding of ${entity.name.toLowerCase()} and its applications`
         });
       }
     });
     
-    // 2. Extract brand names (with ® ™ © symbols)
+    // Remove duplicates
+    const uniqueTeaches = teaches.filter((item, index, self) =>
+      index === self.findIndex((t) => t.name === item.name)
+    );
+    
+    return uniqueTeaches.slice(0, 5); // Limit to 5 most relevant
+  };
+
+  // Universal entity extraction with Wikipedia/Wikidata support
+  const extractEntities = (text: string): Entity[] => {
+    const entities: Entity[] = [];
+    const foundEntities = new Map<string, Entity>();
+    
+    // Extract important multi-word concepts and phrases
+    const importantPhrases = [
+      // Extract noun phrases (simplified pattern)
+      ...Array.from(text.matchAll(/\b([A-Z][a-z]+(?:\s+[A-Z]?[a-z]+){0,2})\b/g), m => m[1]),
+      // Extract compound terms with hyphens
+      ...Array.from(text.matchAll(/\b([a-z]+-[a-z]+(?:-[a-z]+)?)\b/gi), m => m[1]),
+      // Extract terms in quotes
+      ...Array.from(text.matchAll(/"([^"]+)"/g), m => m[1]),
+      ...Array.from(text.matchAll(/'([^']+)'/g), m => m[1])
+    ];
+    
+    // Process each phrase
+    importantPhrases.forEach(phrase => {
+      const normalized = phrase.trim().toLowerCase();
+      
+      // Skip common words and already found entities
+      if (normalized.length < 3 || foundEntities.has(normalized)) return;
+      
+      // Skip if it's just a common word
+      const commonWords = ['the', 'this', 'that', 'these', 'those', 'what', 'when', 'where', 'who', 'why', 'how', 'very', 'much', 'many', 'some', 'from', 'with'];
+      if (commonWords.includes(normalized)) return;
+      
+      // Determine entity type and confidence based on context
+      let entityType = 'concept';
+      let confidence = 0.7;
+      
+      // Check context around the phrase
+      const startIndex = text.toLowerCase().indexOf(normalized);
+      if (startIndex !== -1) {
+        const contextBefore = text.substring(Math.max(0, startIndex - 100), startIndex).toLowerCase();
+        const contextAfter = text.substring(startIndex + phrase.length, Math.min(text.length, startIndex + phrase.length + 100)).toLowerCase();
+        const fullContext = contextBefore + ' ' + normalized + ' ' + contextAfter;
+        
+        // Increase confidence for frequently mentioned terms
+        const occurrences = (text.toLowerCase().match(new RegExp(`\\b${normalized}\\b`, 'g')) || []).length;
+        if (occurrences > 2) confidence += 0.1;
+        if (occurrences > 5) confidence += 0.1;
+        
+        // Detect entity types
+        if (fullContext.match(/\b(company|corporation|inc\.|llc|ltd|gmbh|brand)\b/)) {
+          entityType = 'organization';
+          confidence += 0.1;
+        } else if (fullContext.match(/\b(product|solution|software|tool|device|equipment)\b/)) {
+          entityType = 'product';
+          confidence += 0.05;
+        } else if (fullContext.match(/\b(dr\.|doctor|md|phd|professor)\b/) || phrase.split(' ').length === 2) {
+          entityType = 'person';
+        } else if (fullContext.match(/\b(method|technique|process|procedure|treatment|therapy)\b/)) {
+          entityType = 'medicalProcedure';
+          confidence += 0.1;
+        } else if (fullContext.match(/\b(condition|disease|syndrome|disorder|symptom)\b/)) {
+          entityType = 'medicalCondition';
+          confidence += 0.1;
+        } else if (fullContext.match(/\b(ingredient|compound|chemical|substance|mineral|vitamin)\b/)) {
+          entityType = 'substance';
+          confidence += 0.1;
+        }
+      }
+      
+      // Create the entity
+      const entity: Entity = {
+        name: phrase.split(' ').map(word => 
+          word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+        ).join(' '),
+        type: entityType,
+        confidence: Math.min(confidence, 0.95)
+      };
+      
+      // Attempt to create Wikipedia/Wikidata URLs for high-confidence entities
+      if (confidence > 0.75) {
+        const wikiName = entity.name.replace(/ /g, '_');
+        entity.sameAs = [
+          `https://en.wikipedia.org/wiki/${wikiName}`
+          // Note: In a real implementation, you'd verify these URLs exist
+          // or use an API to search for the correct Wikipedia/Wikidata entries
+        ];
+      }
+      
+      foundEntities.set(normalized, entity);
+    });
+    
+    // Extract brand names (with ® ™ © symbols)
     const brandMatches = text.match(/([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*)(?:[®™©])/g);
     if (brandMatches) {
       brandMatches.forEach(match => {
         const brand = match.replace(/[®™©]/g, '').trim();
-        if (!foundEntities.has(brand.toLowerCase()) && brand.length > 2) {
-          foundEntities.add(brand.toLowerCase());
-          entities.push({
+        const normalized = brand.toLowerCase();
+        if (!foundEntities.has(normalized) && brand.length > 2) {
+          foundEntities.set(normalized, {
             name: brand,
             type: 'brand',
             confidence: 0.95
@@ -195,47 +257,35 @@ export default function Home() {
       });
     }
     
-    // 3. Extract key concepts based on frequency and importance
-    // Get words that appear multiple times (likely important concepts)
+    // Look for key repeated terms (likely important concepts)
     const words = text.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
     const wordFreq = new Map<string, number>();
     
     words.forEach(word => {
-      if (!foundEntities.has(word)) {
+      if (!foundEntities.has(word) && word.length > 5) {
         wordFreq.set(word, (wordFreq.get(word) || 0) + 1);
       }
     });
     
     // Add high-frequency terms as concepts
     Array.from(wordFreq.entries())
-      .filter(([word, freq]) => freq >= 3 && word.length > 5)
+      .filter(([word, freq]) => freq >= 4)
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
+      .slice(0, 5)
       .forEach(([word, freq]) => {
-        entities.push({
-          name: word.charAt(0).toUpperCase() + word.slice(1),
-          type: 'concept',
-          confidence: Math.min(0.6 + (freq * 0.05), 0.9)
-        });
+        if (!foundEntities.has(word)) {
+          foundEntities.set(word, {
+            name: word.charAt(0).toUpperCase() + word.slice(1),
+            type: 'concept',
+            confidence: Math.min(0.6 + (freq * 0.05), 0.85)
+          });
+        }
       });
     
-    // 4. Look for acronyms (might be important organizations/concepts)
-    const acronyms = text.match(/\b[A-Z]{2,}\b/g) || [];
-    acronyms.forEach(acronym => {
-      if (!foundEntities.has(acronym.toLowerCase()) && acronym.length <= 10) {
-        foundEntities.add(acronym.toLowerCase());
-        entities.push({
-          name: acronym,
-          type: 'organization',
-          confidence: 0.8
-        });
-      }
-    });
-    
-    // Sort by confidence and return top entities
-    return entities
+    // Convert to array and sort by confidence
+    return Array.from(foundEntities.values())
       .sort((a, b) => b.confidence - a.confidence)
-      .slice(0, 20);
+      .slice(0, 30); // Allow more entities for better about/mentions distinction
   };
 
   const scrapeUrl = async (url: string) => {
@@ -391,16 +441,31 @@ export default function Home() {
         "audience": audience,
         "teaches": teaches.length > 0 ? teaches : undefined,
         "keywords": entities.filter(e => e.confidence > 0.8).map(e => e.name).slice(0, 10).join(', '),
-        "about": entities.filter(e => e.confidence > 0.85 && e.type !== 'brand').slice(0, 5).map(entity => ({
-          "@type": "Thing",
-          "@id": `#${entity.name.toLowerCase().replace(/\s+/g, '-')}`,
-          "name": entity.name,
-          "sameAs": entity.sameAs || undefined
-        })),
-        "mentions": entities.filter(e => e.confidence > 0.7 && e.confidence <= 0.85).slice(0, 10).map(entity => ({
-          "@type": "Thing",
-          "name": entity.name
-        }))
+        "about": entities
+          .filter(e => {
+            // "About" should be main topics with high confidence and high frequency
+            const occurrences = (content.toLowerCase().match(new RegExp(`\\b${e.name.toLowerCase()}\\b`, 'g')) || []).length;
+            return e.confidence > 0.85 && occurrences > 3 && e.type !== 'person';
+          })
+          .slice(0, 5)
+          .map(entity => ({
+            "@type": "Thing",
+            "@id": `https://example.com/kb/${entity.name.toLowerCase().replace(/\s+/g, '-')}`,
+            "name": entity.name,
+            "sameAs": entity.sameAs || undefined
+          })),
+        "mentions": entities
+          .filter(e => {
+            // "Mentions" should be secondary topics or briefly referenced items
+            const occurrences = (content.toLowerCase().match(new RegExp(`\\b${e.name.toLowerCase()}\\b`, 'g')) || []).length;
+            return e.confidence > 0.7 && e.confidence <= 0.85 && occurrences <= 3;
+          })
+          .slice(0, 10)
+          .map(entity => ({
+            "@type": "Thing",
+            "name": entity.name,
+            "sameAs": entity.sameAs || undefined
+          }))
       };
     } else {
       // Enhanced WebPage with @graph
