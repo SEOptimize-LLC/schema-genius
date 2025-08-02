@@ -141,7 +141,7 @@ export default function Home() {
   };
 
   const generateSchemaForUrl = async (urlData: any) => {
-    const { url, title, description, content, pageType, existingSchemas, organizationName: extractedOrg, authorName: extractedAuthor } = urlData;
+    const { url, title, description, content, pageType, existingSchemas, organizationName: extractedOrg, authorName: extractedAuthor, publishedDate, modifiedDate, logoUrl } = urlData;
     
     // Use extracted values if user hasn't provided their own
     const finalOrgName = organizationName || extractedOrg;
@@ -156,13 +156,13 @@ export default function Home() {
     if (pageType === 'article' || content.toLowerCase().includes('article') || content.toLowerCase().includes('blog')) {
       generatedSchema = {
         "@context": "https://schema.org",
-        "@type": "Article",
+        "@type": "BlogPosting", // Changed from "Article" to "BlogPosting"
         "headline": title,
         "url": url,
         "description": description || content.substring(0, 160),
         "articleBody": content,
-        "datePublished": new Date().toISOString(),
-        "dateModified": new Date().toISOString(),
+        "datePublished": urlData.publishedDate || new Date().toISOString(),
+        "dateModified": urlData.modifiedDate || urlData.publishedDate || new Date().toISOString(),
         "author": finalAuthorName ? {
           "@type": "Person",
           "name": finalAuthorName
@@ -172,7 +172,7 @@ export default function Home() {
           "name": finalOrgName,
           "logo": {
             "@type": "ImageObject",
-            "url": `${new URL(url).origin}/logo.png`
+            "url": urlData.logoUrl || `${new URL(url).origin}/assets/logo.png`
           }
         } : undefined,
         "keywords": entities.map(e => e.name).join(', '),

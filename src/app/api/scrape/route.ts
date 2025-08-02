@@ -223,6 +223,77 @@ function extractDataFromHTML(html: string, url: string) {
     .trim()
     .substring(0, 10000); // Limit to 10k chars
   
+  // Extract published date
+  let publishedDate = '';
+  let modifiedDate = '';
+  
+  // Try meta tags first
+  const datePublishedMeta = html.match(/<meta[^>]+property=["']article:published_time["'][^>]+content=["']([^"']+)["']/i);
+  if (datePublishedMeta) {
+    publishedDate = datePublishedMeta[1];
+  }
+  
+  const dateModifiedMeta = html.match(/<meta[^>]+property=["']article:modified_time["'][^>]+content=["']([^"']+)["']/i);
+  if (dateModifiedMeta) {
+    modifiedDate = dateModifiedMeta[1];
+  }
+  
+  // Look for date patterns in HTML
+  if (!publishedDate) {
+    const datePatterns = [
+      /<span[^>]+class=["'][^"']*date["'][^>]*>([^<]+)</i,
+      /<time[^>]+datetime=["']([^"']+)["']/i,
+      /(?:Published|Posted|Date)[\s:]*([A-Z][a-z]+\s+\d{1,2},?\s+\d{4})/i,
+      /(?:Published|Posted|Date)[\s:]*(\d{1,2}[-\/]\d{1,2}[-\/]\d{4})/,
+      /<meta[^>]+name=["']publish_date["'][^>]+content=["']([^"']+)["']/i
+    ];
+    
+    for (const pattern of datePatterns) {
+      const match = html.match(pattern);
+      if (match && match[1]) {
+        // Parse the date
+        const dateStr = match[1].trim();
+        const parsedDate = new Date(dateStr);
+        if (!isNaN(parsedDate.getTime())) {
+          publishedDate = parsedDate.toISOString();
+          break;
+        }
+      }
+    }
+  }
+  
+  // Extract logo URL
+  let logoUrl = '';
+  
+  // Try Open Graph image first
+  const ogImage = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i);
+  if (ogImage) {
+    logoUrl = ogImage[1];
+  }
+  
+  // Try to find logo in common patterns
+  if (!logoUrl) {
+    const logoPatterns = [
+      /<img[^>]+class=["'][^"']*logo[^"']*["'][^>]+src=["']([^"']+)["']/i,
+      /<img[^>]+id=["'][^"']*logo[^"']*["'][^>]+src=["']([^"']+)["']/i,
+      /<img[^>]+alt=["'][^"']*logo[^"']*["'][^>]+src=["']([^"']+)["']/i,
+      /src=["']([^"']+logo[^"']+)["']/i
+    ];
+    
+    for (const pattern of logoPatterns) {
+      const match = html.match(pattern);
+      if (match && match[1]) {
+        logoUrl = match[1];
+        // Make absolute URL if relative
+        if (logoUrl.startsWith('/')) {
+          const urlObj = new URL(url);
+          logoUrl = `${urlObj.origin}${logoUrl}`;
+        }
+        break;
+      }
+    }
+  }
+  
   return {
     url,
     title: title || ogTitle || '',
@@ -231,6 +302,9 @@ function extractDataFromHTML(html: string, url: string) {
     pageType: ogType || 'WebPage',
     organizationName,
     authorName,
+    publishedDate,
+    modifiedDate,
+    logoUrl,
     existingSchemas,
     metadata: {
       ogTitle,
