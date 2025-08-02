@@ -3,6 +3,12 @@
 // app/lib/intelligence/nlp-engine.ts
 // import { removeStopwords, eng } from 'stopword'; // Commented out as not being used
 
+// Import all intelligence modules
+import { mlRecommendationEngine } from './ml-recommendation-engine';
+import { knowledgeGraphBuilder } from './knowledge-graph-builder';
+import { vectorEmbeddingsEngine } from './vector-embeddings-engine';
+import { advancedNLPFeatures } from './advanced-nlp-features';
+
 interface ExtractedEntity {
   name: string;
   type: 'concept' | 'product' | 'service' | 'organization' | 'person' | 'location' | 'event' | 'medical' | 'fitness';
@@ -23,14 +29,29 @@ interface ContentAnalysis {
   targetAudience: any;
   learningOutcomes: any[];
   mainConcepts: string[];
+  sentiment?: any;
+  namedEntities?: any[];
+  relationships?: any[];
+  knowledgeGraph?: any;
+  schemaRecommendations?: any[];
+  semanticEmbeddings?: any;
 }
 
 export class NLPEngine {
   private industryPatterns!: Map<string, RegExp[]>;
   private conceptPatterns!: Map<string, RegExp[]>;
+  private mlEngine: typeof mlRecommendationEngine;
+  private graphBuilder: typeof knowledgeGraphBuilder;
+  private embeddingsEngine: typeof vectorEmbeddingsEngine;
+  private advancedNLP: typeof advancedNLPFeatures;
   
   constructor() {
     this.initializePatterns();
+    // Initialize intelligence modules
+    this.mlEngine = mlRecommendationEngine;
+    this.graphBuilder = knowledgeGraphBuilder;
+    this.embeddingsEngine = vectorEmbeddingsEngine;
+    this.advancedNLP = advancedNLPFeatures;
   }
 
   private initializePatterns() {
@@ -89,11 +110,37 @@ export class NLPEngine {
     // Extract entities with context
     const entities = await this.extractEntities(content, industry);
     
+    // Advanced NLP features
+    const [sentiment, namedEntities, topics] = await Promise.all([
+      this.advancedNLP.analyzeSentiment(content),
+      this.advancedNLP.recognizeEntities(content),
+      this.extractTopics(content, industry)
+    ]);
+    
+    // Extract relationships between entities
+    const relationships = await this.advancedNLP.extractRelationships(content, namedEntities);
+    
+    // Build knowledge graph
+    const knowledgeGraph = await this.graphBuilder.buildGraph(entities, content, industry);
+    
+    // Get ML-based schema recommendations
+    const schemaRecommendations = await this.mlEngine.recommendSchema(
+      content, 
+      title, 
+      url || '',
+      entities
+    );
+    
+    // Create semantic embeddings for content
+    const contentEmbedding = await this.embeddingsEngine.createEmbedding(content);
+    const entityEmbeddings = await Promise.all(
+      entities.slice(0, 10).map(entity => 
+        this.embeddingsEngine.createEntityEmbedding(entity, content)
+      )
+    );
+    
     // Extract meaningful keywords (not generic words)
     const keywords = this.extractKeywords(content, entities);
-    
-    // Determine topics based on content
-    const topics = this.extractTopics(content, industry);
     
     // Analyze target audience
     const targetAudience = this.analyzeAudience(content, industry, entities);
@@ -112,7 +159,16 @@ export class NLPEngine {
       industry,
       targetAudience,
       learningOutcomes,
-      mainConcepts
+      mainConcepts,
+      sentiment,
+      namedEntities,
+      relationships,
+      knowledgeGraph,
+      schemaRecommendations,
+      semanticEmbeddings: {
+        content: contentEmbedding,
+        entities: entityEmbeddings
+      }
     };
   }
 
@@ -518,6 +574,55 @@ export class NLPEngine {
       })
       .map(e => e.name)
       .slice(0, 5);
+  }
+
+  // Public methods for advanced features
+  
+  async getSentimentAnalysis(text: string) {
+    return this.advancedNLP.analyzeSentiment(text);
+  }
+  
+  async getNamedEntities(text: string) {
+    return this.advancedNLP.recognizeEntities(text);
+  }
+  
+  async getSchemaRecommendations(content: string, title: string, url: string) {
+    const entities = await this.extractEntities(content, this.detectIndustry(content, title));
+    return this.mlEngine.recommendSchema(content, title, url, entities);
+  }
+  
+  async buildKnowledgeGraph(content: string, title: string) {
+    const industry = this.detectIndustry(content, title);
+    const entities = await this.extractEntities(content, industry);
+    return this.graphBuilder.buildGraph(entities, content, industry);
+  }
+  
+  async getSemanticSimilarity(text1: string, text2: string) {
+    return this.embeddingsEngine.computeTextSimilarity(text1, text2);
+  }
+  
+  async findSimilarContent(query: string, options?: any) {
+    return this.embeddingsEngine.semanticSearch(query, options);
+  }
+  
+  async extractTopicsFromDocuments(documents: string[], numTopics: number = 5) {
+    return this.advancedNLP.extractTopics(documents, numTopics);
+  }
+  
+  async validateSchemaType(schemaType: string, content: string, title: string) {
+    return this.mlEngine.validateSchemaType(schemaType, content, title);
+  }
+  
+  getKnowledgeGraphNode(entityName: string) {
+    return this.graphBuilder.getNode(entityName);
+  }
+  
+  getRelatedEntities(entityName: string, depth: number = 2) {
+    return this.graphBuilder.getRelatedNodes(entityName, depth);
+  }
+  
+  async clusterContent() {
+    return this.embeddingsEngine.clusterEmbeddings();
   }
 }
 
