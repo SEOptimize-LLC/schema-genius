@@ -27,7 +27,7 @@ interface EmbeddingModel {
 export class VectorEmbeddingsEngine {
   private embeddings: Map<string, VectorEmbedding>;
   private model: EmbeddingModel;
-  private stopwords: Set<string>;
+  private stopwords!: Set<string>;
   
   constructor() {
     this.embeddings = new Map();
