@@ -163,13 +163,20 @@ function extractAuthorFromAboutPage(html: string, authorName: string): {
   sameAs: string[];
   knowsAbout: string[];
 } {
-  const result = {
+  const result: {
+    found: boolean;
+    jobTitle: string;
+    description: string;
+    image: string;
+    sameAs: string[];
+    knowsAbout: string[];
+  } = {
     found: false,
     jobTitle: '',
     description: '',
     image: '',
-    sameAs: [],
-    knowsAbout: []
+    sameAs: [] as string[],
+    knowsAbout: [] as string[]
   };
 
   // Create a case-insensitive search pattern for the author
@@ -236,13 +243,22 @@ function extractAuthorFromProfilePage(html: string, authorName: string): {
   worksFor: string;
   alumniOf: string;
 } {
-  const result = {
+  const result: {
+    found: boolean;
+    jobTitle: string;
+    description: string;
+    image: string;
+    sameAs: string[];
+    knowsAbout: string[];
+    worksFor: string;
+    alumniOf: string;
+  } = {
     found: false,
     jobTitle: '',
     description: '',
     image: '',
-    sameAs: [],
-    knowsAbout: [],
+    sameAs: [] as string[],
+    knowsAbout: [] as string[],
     worksFor: '',
     alumniOf: ''
   };
